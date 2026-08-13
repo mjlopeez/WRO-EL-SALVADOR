@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { collection, onSnapshot } from 'firebase/firestore'
+import { collection, onSnapshot, doc, setDoc } from 'firebase/firestore'
 import { db } from '../../firebase'
+import { Upload, CheckCircle } from 'lucide-react'
 import { CATEGORIES, CATEGORY_META, ROUNDS, MISSION_MAX, DOC_MAX, DOC_RUBRIC } from './config'
 
 const catColors = {
@@ -12,20 +13,22 @@ const catColors = {
 const TOTAL_MAX = MISSION_MAX + DOC_MAX
 
 export default function RSResultsView() {
-  const [teams, setTeams]   = useState([])
-  const [scores, setScores] = useState([])
-  const [catTab, setCatTab] = useState(CATEGORIES[0])
-  const [loading, setLoading] = useState(true)
+  const [teams, setTeams]         = useState([])
+  const [scores, setScores]       = useState([])
+  const [catTab, setCatTab]       = useState(CATEGORIES[0])
+  const [loading, setLoading]     = useState(true)
+  const [publishing, setPublishing] = useState(false)
+  const [publishMsg, setPublishMsg] = useState(null)
 
   useEffect(() => {
-    const unsub1 = onSnapshot(collection(db, 'rs_teams'), snap => {
+    const u1 = onSnapshot(collection(db, 'rs_teams'), snap => {
       setTeams(snap.docs.map(d => ({ id: d.id, ...d.data() })))
     })
-    const unsub2 = onSnapshot(collection(db, 'rs_scores'), snap => {
+    const u2 = onSnapshot(collection(db, 'rs_scores'), snap => {
       setScores(snap.docs.map(d => ({ id: d.id, ...d.data() })))
       setLoading(false)
     }, () => setLoading(false))
-    return () => { unsub1(); unsub2() }
+    return () => { u1(); u2() }
   }, [])
 
   const catTeams = teams.filter(t => t.category === catTab)
@@ -38,25 +41,76 @@ export default function RSResultsView() {
       return acc
     }, {})
 
-  const cc = catColors[catTab] || catColors.elementary
+  const cc   = catColors[catTab] || catColors.elementary
   const meta = CATEGORY_META[catTab] || {}
+
+  const handlePublish = async () => {
+    if (!confirm('¿Publicar los resultados actuales en la pantalla pública?')) return
+    setPublishing(true); setPublishMsg(null)
+    try {
+      const ranking = []
+      for (const cat of CATEGORIES) {
+        const catT = teams.filter(t => t.category === cat)
+        const ranked = catT.map(team => {
+          const ts   = scores.filter(s => s.teamId === team.id)
+          const best = ts.length ? Math.max(...ts.map(s => s.total ?? 0)) : 0
+          const sum  = ts.reduce((a, s) => a + (s.total ?? 0), 0)
+          return {
+            teamId: team.id, teamName: team.name, teamNumber: team.number,
+            institution: team.institution, category: cat,
+            best, sum, maxTotal: TOTAL_MAX,
+          }
+        }).sort((a, b) => b.best - a.best || b.sum - a.sum)
+        ranking.push(...ranked)
+      }
+      await setDoc(doc(db, 'published_results', 'rs'), {
+        ranking, publishedAt: new Date().toISOString(), module: 'rs'
+      })
+      setPublishMsg({ type: 'success', text: '¡Resultados publicados en la pantalla!' })
+      setTimeout(() => setPublishMsg(null), 4000)
+    } catch {
+      setPublishMsg({ type: 'error', text: 'Error al publicar.' })
+    } finally {
+      setPublishing(false)
+    }
+  }
 
   return (
     <div className="space-y-5">
-      {/* Category tabs */}
-      <div className="flex gap-2 bg-dark-700 p-1 rounded-xl w-fit">
-        {CATEGORIES.map(cat => {
-          const c = catColors[cat]
-          return (
-            <button key={cat} onClick={() => setCatTab(cat)}
-              className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                catTab === cat ? `bg-dark-600 ${c.text}` : 'text-gray-500 hover:text-gray-300'
-              }`}>
-              {CATEGORY_META[cat]?.label || cat}
-            </button>
-          )
-        })}
+      {/* Toolbar */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex gap-2 bg-dark-700 p-1 rounded-xl">
+          {CATEGORIES.map(cat => {
+            const c = catColors[cat]
+            return (
+              <button key={cat} onClick={() => setCatTab(cat)}
+                className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  catTab === cat ? `bg-dark-600 ${c.text}` : 'text-gray-500 hover:text-gray-300'
+                }`}>
+                {CATEGORY_META[cat]?.label || cat}
+              </button>
+            )
+          })}
+        </div>
+        <button onClick={handlePublish} disabled={publishing}
+          className="btn-primary flex items-center gap-2 text-sm py-2">
+          {publishing
+            ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+            : <><Upload size={15} /> Publicar en pantalla</>}
+        </button>
       </div>
+
+      {/* Publish message */}
+      {publishMsg && (
+        <div className={`flex items-center gap-2 px-4 py-3 rounded-xl text-sm border ${
+          publishMsg.type === 'success'
+            ? 'bg-green-500/10 border-green-500/20 text-green-400'
+            : 'bg-red-500/10 border-red-500/20 text-red-400'
+        }`}>
+          <CheckCircle size={15} />
+          {publishMsg.text}
+        </div>
+      )}
 
       {loading ? (
         <div className="flex items-center justify-center py-16">
@@ -73,7 +127,6 @@ export default function RSResultsView() {
             return (
               <motion.div key={team.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: i * 0.04 }} className="card">
-                {/* Team header */}
                 <div className="flex items-center gap-3 mb-3">
                   <div className={`w-9 h-9 rounded-xl ${cc.bg} border ${cc.border} flex items-center justify-center font-bold ${cc.text} text-sm shrink-0`}>
                     {team.number || team.name?.[0]?.toUpperCase()}
@@ -84,23 +137,19 @@ export default function RSResultsView() {
                   </div>
                 </div>
 
-                {/* Per-round scores */}
                 <div className="grid grid-cols-3 gap-2">
                   {ROUNDS.map(r => {
                     const s = roundScores[r]
-                    const hasScore = !!s
                     return (
                       <div key={r} className={`rounded-xl p-2.5 border text-center ${
-                        hasScore ? `${cc.bg} ${cc.border}` : 'bg-dark-700 border-dark-600'
+                        s ? `${cc.bg} ${cc.border}` : 'bg-dark-700 border-dark-600'
                       }`}>
                         <p className="text-xs text-gray-500 mb-1">Ronda {r}</p>
-                        {hasScore ? (
+                        {s ? (
                           <>
                             <p className={`font-mono font-bold text-lg ${cc.text}`}>{s.total}</p>
                             <p className="text-xs text-gray-600">mis: {s.missionScore} · doc: {s.docTotal}</p>
-                            {s.finalized && (
-                              <span className="text-xs text-green-400 font-semibold">✓ finalizado</span>
-                            )}
+                            {s.finalized && <span className="text-xs text-green-400 font-semibold">✓</span>}
                           </>
                         ) : (
                           <p className="text-gray-600 text-xs mt-1">—</p>
@@ -110,7 +159,6 @@ export default function RSResultsView() {
                   })}
                 </div>
 
-                {/* Best score highlight */}
                 {Object.values(roundScores).some(Boolean) && (() => {
                   const best = Math.max(...ROUNDS.map(r => roundScores[r]?.total ?? 0))
                   const pct  = Math.round((best / TOTAL_MAX) * 100)
@@ -122,13 +170,13 @@ export default function RSResultsView() {
                       </div>
                       <div className="h-1.5 bg-dark-600 rounded-full overflow-hidden">
                         <motion.div className={`h-full ${cc.badge} rounded-full`}
-                          initial={{ width: 0 }} animate={{ width: `${pct}%` }} transition={{ duration: 0.5, delay: i * 0.05 }} />
+                          initial={{ width: 0 }} animate={{ width: `${pct}%` }}
+                          transition={{ duration: 0.5, delay: i * 0.05 }} />
                       </div>
                     </div>
                   )
                 })()}
 
-                {/* Doc rubric detail (collapsible) */}
                 {ROUNDS.map(r => {
                   const s = roundScores[r]
                   if (!s?.docScores || !Object.keys(s.docScores).length) return null

@@ -63,7 +63,7 @@ service cloud.firestore {
       allow read: if isAuth();
       allow write: if isAdmin();
     }
-    match /rsp_scores/{id} {
+    match /rsp_matches/{id} {
       allow read: if isAuth();
       allow create: if isAuth();
       allow update: if isAdmin() || (isJudge() && resource.data.judgeUid == request.auth.uid && resource.data.finalized == false);

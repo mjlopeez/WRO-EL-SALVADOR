@@ -1,17 +1,19 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { collection, onSnapshot } from 'firebase/firestore'
+import { collection, onSnapshot, doc, setDoc } from 'firebase/firestore'
 import { db } from '../../firebase'
-import { Swords } from 'lucide-react'
+import { Swords, Upload, CheckCircle } from 'lucide-react'
 import { ROUNDS } from './config'
 
 const cc = { bg: 'bg-sky-500/10', border: 'border-sky-500/30', text: 'text-sky-400', solid: 'bg-sky-500' }
 
 export default function RSPResultsView() {
-  const [teams, setTeams]     = useState([])
-  const [matches, setMatches] = useState([])
-  const [loading, setLoading] = useState(true)
+  const [teams, setTeams]       = useState([])
+  const [matches, setMatches]   = useState([])
+  const [loading, setLoading]   = useState(true)
   const [roundTab, setRoundTab] = useState('all')
+  const [publishing, setPublishing] = useState(false)
+  const [publishMsg, setPublishMsg] = useState(null)
 
   useEffect(() => {
     const u1 = onSnapshot(collection(db, 'rsp_teams'),   s => setTeams(s.docs.map(d => ({ id: d.id, ...d.data() }))))
@@ -27,19 +29,60 @@ export default function RSPResultsView() {
   const filtered = roundTab === 'all' ? matches : matches.filter(m => m.round === roundTab)
   const sorted   = [...filtered].sort((a, b) => (b.recordedAt?.seconds || 0) - (a.recordedAt?.seconds || 0))
 
+  const handlePublish = async () => {
+    if (!confirm('¿Publicar el ranking actual en la pantalla pública?')) return
+    setPublishing(true); setPublishMsg(null)
+    try {
+      const finalized = matches.filter(m => m.finalized)
+      const ranking = teams.map(team => {
+        const tm = finalized.filter(m => m.teamAId === team.id || m.teamBId === team.id)
+        const wins    = tm.filter(m => m.winner === (m.teamAId === team.id ? 'A' : 'B')).length
+        const setsWon = tm.reduce((a, m) => a + (m.teamAId === team.id ? m.setsA : m.setsB), 0)
+        const setsLost = tm.reduce((a, m) => a + (m.teamAId === team.id ? m.setsB : m.setsA), 0)
+        return { teamId: team.id, teamName: team.name, institution: team.institution,
+          category: 'open', wins, setsWon, setsLost, setDiff: setsWon - setsLost, played: tm.length }
+      }).filter(r => r.played > 0).sort((a, b) => b.wins - a.wins || b.setDiff - a.setDiff)
+
+      await setDoc(doc(db, 'published_results', 'rsp'), {
+        ranking, publishedAt: new Date().toISOString(), module: 'rsp'
+      })
+      setPublishMsg({ type: 'success', text: '¡Ranking publicado en la pantalla!' })
+      setTimeout(() => setPublishMsg(null), 4000)
+    } catch {
+      setPublishMsg({ type: 'error', text: 'Error al publicar.' })
+    } finally { setPublishing(false) }
+  }
+
   return (
     <div className="space-y-4">
-      {/* Round filter */}
-      <div className="flex flex-wrap gap-2">
-        {['all', ...ROUNDS].map(r => (
-          <button key={r} onClick={() => setRoundTab(r)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
-              roundTab === r ? `${cc.bg} ${cc.border} ${cc.text}` : 'border-dark-500 text-gray-500 hover:text-gray-300'
-            }`}>
-            {r === 'all' ? 'Todos' : r}
-          </button>
-        ))}
+      {/* Toolbar */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+          {['all', ...ROUNDS].map(r => (
+            <button key={r} onClick={() => setRoundTab(r)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                roundTab === r ? `${cc.bg} ${cc.border} ${cc.text}` : 'border-dark-500 text-gray-500 hover:text-gray-300'
+              }`}>
+              {r === 'all' ? 'Todos' : r}
+            </button>
+          ))}
+        </div>
+        <button onClick={handlePublish} disabled={publishing}
+          className="btn-primary flex items-center gap-2 text-sm py-2">
+          {publishing
+            ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+            : <><Upload size={15} /> Publicar ranking</>}
+        </button>
       </div>
+
+      {publishMsg && (
+        <div className={`flex items-center gap-2 px-4 py-3 rounded-xl text-sm border ${
+          publishMsg.type === 'success'
+            ? 'bg-green-500/10 border-green-500/20 text-green-400'
+            : 'bg-red-500/10 border-red-500/20 text-red-400'
+        }`}>
+          <CheckCircle size={15} /> {publishMsg.text}
+        </div>
+      )}
 
       {loading ? (
         <div className="flex items-center justify-center py-16">

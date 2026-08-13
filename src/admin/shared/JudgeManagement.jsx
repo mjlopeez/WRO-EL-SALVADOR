@@ -6,14 +6,15 @@ import { db } from '../../firebase'
 import { useAuth } from '../../contexts/AuthContext'
 import { MODULE_LIST, MODULES } from '../../modules/index'
 
-const SUBCATS = [
-  { value: 'elementary', label: 'Elementary' },
-  { value: 'junior',     label: 'Junior'     },
-  { value: 'senior',     label: 'Senior'     },
-]
+// Subcategorías por módulo (rsp = Open, sin subcategorías)
+const SUBCATS_BY_MODULE = {
+  rm: [{ value: 'elementary', label: 'Elementary' }, { value: 'junior', label: 'Junior' }, { value: 'senior', label: 'Senior' }],
+  fi: [{ value: 'elementary', label: 'Elementary' }, { value: 'junior', label: 'Junior' }, { value: 'senior', label: 'Senior' }],
+  rs: [{ value: 'elementary', label: 'Kids Elementary' }, { value: 'junior', label: 'Kids Junior' }],
+}
 
 // Modules that use age-based subcategories
-const MODULES_WITH_SUBCATS = new Set(['rm', 'fi', 'rs', 'rsp'])
+const MODULES_WITH_SUBCATS = new Set(['rm', 'fi', 'rs'])
 
 const subcatColors = {
   elementary: 'bg-elementary/20 border-elementary text-elementary',
@@ -163,7 +164,7 @@ export default function JudgeManagement() {
           >
             Todas las categorías
           </button>
-          {SUBCATS.map(({ value, label }) => {
+          {(SUBCATS_BY_MODULE[filterModule] || []).map(({ value, label }) => {
             const count = judges.filter(j => j.modules?.includes(filterModule) && j.category === value).length
             return (
               <button key={value}
@@ -332,7 +333,7 @@ export default function JudgeManagement() {
                   <div>
                     <label className="block text-sm text-gray-400 mb-2 font-medium">Categoría de edad</label>
                     <div className="grid grid-cols-3 gap-2">
-                      {SUBCATS.map(({ value, label }) => (
+                      {(SUBCATS_BY_MODULE[form.module] || []).map(({ value, label }) => (
                         <button key={value} type="button"
                           onClick={() => setForm(f => ({ ...f, category: value }))}
                           className={`py-2 px-3 rounded-xl text-sm font-semibold border transition-all ${
