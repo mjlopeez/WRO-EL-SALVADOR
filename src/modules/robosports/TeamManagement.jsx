@@ -126,7 +126,7 @@ export default function RSPTeamManagement() {
     t.institution?.toLowerCase().includes(search.toLowerCase())
   )
 
-  const Field = ({ label, name, placeholder }) => (
+  const field = (label, name, placeholder) => (
     <div>
       <label className="block text-xs font-semibold text-gray-400 mb-1">{label}</label>
       <input value={form[name]} onChange={e => setForm(f => ({ ...f, [name]: e.target.value }))}
@@ -212,23 +212,24 @@ export default function RSPTeamManagement() {
               </div>
               <form onSubmit={handleSave} className="p-5 space-y-4">
                 <div className="grid grid-cols-2 gap-3">
-                  <div className="col-span-2"><Field label="Nombre del equipo *" name="name" placeholder="Ej: RoboAces" /></div>
-                  <Field label="Número" name="number" placeholder="Ej: 42" />
+                  <div className="col-span-2">{field('Nombre del equipo *', 'name', 'Ej: RoboAces')}</div>
+                  {field('Número', 'number', 'Ej: 42')}
                   <div>
                     <label className="block text-xs font-semibold text-gray-400 mb-1">Categoría</label>
                     <div className="px-3 py-2 rounded-xl border border-sky-500/30 bg-sky-500/10 text-sky-400 text-sm font-semibold">
                       Open · 11–19 años
                     </div>
                   </div>
-                  <div className="col-span-2"><Field label="Institución" name="institution" placeholder="Colegio / Club" /></div>
+                  <div className="col-span-2">{field('Institución', 'institution', 'Colegio / Club')}</div>
                 </div>
 
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Miembros (2 robots = hasta 4 pilotos)</p>
                 <div className="grid grid-cols-2 gap-3">
-                  {['member1','member2','member3','member4'].map((f, i) => (
-                    <Field key={f} label={`Piloto ${i+1}${i < 2 ? ' *' : ''}`} name={f} placeholder={`Nombre piloto ${i+1}`} />
-                  ))}
-                  <div className="col-span-2"><Field label="Coach / Entrenador" name="coach" placeholder="Nombre del coach" /></div>
+                  {field('Piloto 1 *', 'member1', 'Nombre piloto 1')}
+                  {field('Piloto 2 *', 'member2', 'Nombre piloto 2')}
+                  {field('Piloto 3', 'member3', 'Nombre piloto 3')}
+                  {field('Piloto 4', 'member4', 'Nombre piloto 4')}
+                  <div className="col-span-2">{field('Coach / Entrenador', 'coach', 'Nombre del coach')}</div>
                 </div>
 
                 <div className="flex gap-3 pt-2">
