@@ -5,15 +5,19 @@ import { useAuth } from '../contexts/AuthContext'
 import { MODULES } from '../modules/index'
 
 const RoboMissionJudge      = lazy(() => import('../modules/robomission/JudgeView'))
+const RoboStarterJudge      = lazy(() => import('../modules/robostarter/JudgeView'))
+const RoboSportsJudge       = lazy(() => import('../modules/robosports/JudgeView'))
 const FutureInnovatorsJudge = lazy(() => import('../modules/futureinnovators/JudgeView'))
 const FutureEngineersJudge  = lazy(() => import('../modules/futureengineers/JudgeView'))
 
 function moduleJudgeView(moduleId) {
   switch (moduleId) {
-    case 'rm': return <RoboMissionJudge />
-    case 'fi': return <FutureInnovatorsJudge />
-    case 'fe': return <FutureEngineersJudge />
-    default:   return <ComingSoon moduleId={moduleId} />
+    case 'rm':  return <RoboMissionJudge />
+    case 'rs':  return <RoboStarterJudge />
+    case 'rsp': return <RoboSportsJudge />
+    case 'fi':  return <FutureInnovatorsJudge />
+    case 'fe':  return <FutureEngineersJudge />
+    default:    return <ComingSoon moduleId={moduleId} />
   }
 }
 
