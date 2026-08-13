@@ -1,0 +1,102 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuth() { return request.auth != null; }
+    function isAdmin() {
+      return isAuth() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+    function isJudge() {
+      return isAuth() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'judge';
+    }
+
+    // Users
+    match /users/{uid} {
+      allow read: if isAuth();
+      allow write: if isAdmin() || request.auth.uid == uid;
+    }
+
+    // Shared collections
+    match /institutions/{id} {
+      allow read: if isAuth();
+      allow write: if isAdmin();
+    }
+
+    // Display settings & token
+    match /settings/{docId} {
+      allow read: if true;   // needed for display token validation
+      allow write: if isAdmin();
+    }
+
+    // Published results (token-protected read handled client-side)
+    match /published_results/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // ── RoboMission ──
+    match /rm_teams/{id} {
+      allow read: if isAuth();
+      allow write: if isAdmin();
+    }
+    match /rm_scores/{id} {
+      allow read: if isAuth();
+      allow create: if isAuth();
+      allow update: if isAdmin() || (isJudge() && resource.data.judgeUid == request.auth.uid && resource.data.finalized == false);
+      allow delete: if isAdmin();
+    }
+
+    // ── RoboStarter ──
+    match /rs_teams/{id} {
+      allow read: if isAuth();
+      allow write: if isAdmin();
+    }
+    match /rs_scores/{id} {
+      allow read: if isAuth();
+      allow create: if isAuth();
+      allow update: if isAdmin() || (isJudge() && resource.data.judgeUid == request.auth.uid && resource.data.finalized == false);
+      allow delete: if isAdmin();
+    }
+
+    // ── RoboSports ──
+    match /rsp_teams/{id} {
+      allow read: if isAuth();
+      allow write: if isAdmin();
+    }
+    match /rsp_scores/{id} {
+      allow read: if isAuth();
+      allow create: if isAuth();
+      allow update: if isAdmin() || (isJudge() && resource.data.judgeUid == request.auth.uid && resource.data.finalized == false);
+      allow delete: if isAdmin();
+    }
+
+    // ── Future Innovators ──
+    match /fi_teams/{id} {
+      allow read: if isAuth();
+      allow write: if isAdmin();
+    }
+    match /fi_pairs/{id} {
+      allow read: if isAuth();
+      allow write: if isAdmin();
+    }
+    match /fi_scores/{id} {
+      allow read: if isAuth();
+      allow create: if isAuth();
+      allow update: if isAdmin() || (isJudge() && resource.data.judgeUid == request.auth.uid && resource.data.finalized == false);
+      allow delete: if isAdmin();
+    }
+
+    // ── Future Engineers ──
+    match /fe_teams/{id} {
+      allow read: if isAuth();
+      allow write: if isAdmin();
+    }
+    match /fe_scores/{id} {
+      allow read: if isAuth();
+      allow create: if isAuth();
+      allow update: if isAdmin() || (isJudge() && resource.data.judgeUid == request.auth.uid && resource.data.finalized == false);
+      allow delete: if isAdmin();
+    }
+
+  }
+}
