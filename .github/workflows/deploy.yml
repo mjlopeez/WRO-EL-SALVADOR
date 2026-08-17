@@ -21,6 +21,13 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Deploy Firestore Rules
+        run: |
+          echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT_WRO_EL_SALVADOR }}' > /tmp/sa.json
+          npx firebase-tools deploy --only firestore:rules --project wro-el-salvador-2026
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: /tmp/sa.json
+
       - name: Deploy to Firebase Hosting
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
