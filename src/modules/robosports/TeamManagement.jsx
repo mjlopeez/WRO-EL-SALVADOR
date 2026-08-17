@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  Plus, Pencil, Trash2, X, Save, Users, ChevronDown, UserCheck, Search, Building2, GraduationCap
+  Plus, Pencil, Trash2, X, Save, Users, ChevronDown, UserCheck, Search, Shuffle, Building2, GraduationCap
 } from 'lucide-react'
 import {
   collection, addDoc, updateDoc, deleteDoc,
-  doc, onSnapshot, serverTimestamp, where, query as fsQuery
+  doc, onSnapshot, serverTimestamp, where, query as fsQuery, writeBatch
 } from 'firebase/firestore'
 import { db } from '../../firebase'
 import { CATEGORY_META } from './config'
@@ -65,6 +65,8 @@ export default function RSPTeamManagement() {
   const [showForm, setShowForm] = useState(false)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(null)
+  const [assigning, setAssigning] = useState(false)
+  const [msg, setMsg] = useState(null)
 
   useEffect(() => {
     const u1 = onSnapshot(collection(db, 'rsp_teams'), snap =>
@@ -112,6 +114,32 @@ export default function RSPTeamManagement() {
     } finally { setSaving(false) }
   }
 
+  const showMsg = (type, text) => { setMsg({ type, text }); setTimeout(() => setMsg(null), 4000) }
+
+  const handleQuickAssign = async () => {
+    const unassigned = teams.filter(t => !t.assignedJudgeUid)
+    if (unassigned.length === 0) { showMsg('success', 'Todos los equipos ya tienen juez asignado.'); return }
+    if (judges.length === 0) { showMsg('error', 'No hay jueces RSP disponibles.'); return }
+    if (!confirm(`¿Asignar jueces al azar a ${unassigned.length} equipo(s) sin asignar?`)) return
+    setAssigning(true)
+    try {
+      const assignCount = {}
+      teams.forEach(t => { if (t.assignedJudgeUid) assignCount[t.assignedJudgeUid] = (assignCount[t.assignedJudgeUid] || 0) + 1 })
+      const batch = writeBatch(db)
+      for (const team of unassigned) {
+        const min = Math.min(...judges.map(j => assignCount[j.id] || 0))
+        const least = judges.filter(j => (assignCount[j.id] || 0) === min)
+        const picked = least[Math.floor(Math.random() * least.length)]
+        batch.update(doc(db, 'rsp_teams', team.id), { assignedJudgeUid: picked.id })
+        assignCount[picked.id] = (assignCount[picked.id] || 0) + 1
+      }
+      await batch.commit()
+      showMsg('success', `✅ ${unassigned.length} equipo(s) asignados correctamente.`)
+    } catch (err) {
+      showMsg('error', err.message || 'Error en asignación rápida.')
+    } finally { setAssigning(false) }
+  }
+
   const handleDelete = async (id) => {
     if (!confirm('¿Eliminar este equipo?')) return
     setDeleting(id)
@@ -136,6 +164,36 @@ export default function RSPTeamManagement() {
 
   return (
     <div className="space-y-4">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl md:text-3xl font-extrabold text-white">Equipos · RoboSports</h1>
+          <p className="text-gray-400 mt-1 text-sm">{teams.length} equipo{teams.length !== 1 ? 's' : ''} · Open (11–19 años)</p>
+        </div>
+        <div className="flex gap-2 self-start sm:self-auto">
+          <button onClick={handleQuickAssign} disabled={assigning}
+            className="btn-ghost flex items-center gap-2 text-sm disabled:opacity-50"
+            title="Asignar jueces al azar a equipos sin asignación">
+            {assigning ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Shuffle size={16} />}
+            Asignación rápida
+          </button>
+          <button onClick={openCreate} className="btn-primary flex items-center gap-2 py-2 text-sm">
+            <Plus size={16} /> Nuevo equipo
+          </button>
+        </div>
+      </div>
+
+      {/* Msg */}
+      {msg && (
+        <div className={`flex items-center gap-2 text-sm px-4 py-3 rounded-xl ${
+          msg.type === 'success' ? 'bg-sky-500/10 border border-sky-500/20 text-sky-400'
+            : 'bg-red-500/10 border border-red-500/20 text-red-400'
+        }`}>
+          {msg.text}
+          <button onClick={() => setMsg(null)} className="ml-auto"><X size={14} /></button>
+        </div>
+      )}
+
       {/* Toolbar */}
       <div className="flex items-center gap-3 flex-wrap">
         <div className="relative flex-1 min-w-48">
@@ -143,15 +201,6 @@ export default function RSPTeamManagement() {
           <input className="input-field pl-9 py-2 text-sm" placeholder="Buscar equipo..."
             value={search} onChange={e => setSearch(e.target.value)} />
         </div>
-        <button onClick={openCreate} className="btn-primary flex items-center gap-2 py-2 text-sm">
-          <Plus size={16} /> Nuevo equipo
-        </button>
-      </div>
-
-      {/* Stats */}
-      <div className="flex items-center gap-3 text-xs text-gray-500">
-        <Users size={14} />
-        <span>{teams.length} equipo{teams.length !== 1 ? 's' : ''} · Open (11–19 años)</span>
       </div>
 
       {/* Team list */}

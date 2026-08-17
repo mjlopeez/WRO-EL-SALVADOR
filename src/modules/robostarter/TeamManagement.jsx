@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Users, Plus, Trash2, Pencil, X, Check, Search, AlertCircle, CheckCircle, UserCheck, ChevronDown, Building2, GraduationCap } from 'lucide-react'
+import { Users, Plus, Trash2, Pencil, X, Check, Search, AlertCircle, CheckCircle, UserCheck, ChevronDown, Shuffle, Building2, GraduationCap } from 'lucide-react'
 import {
   collection, addDoc, deleteDoc, doc, updateDoc,
-  onSnapshot, orderBy, query as fsQuery, serverTimestamp
+  onSnapshot, orderBy, query as fsQuery, serverTimestamp, writeBatch
 } from 'firebase/firestore'
 import { db } from '../../firebase'
 import { CATEGORIES, CATEGORY_META } from './config'
@@ -86,6 +86,7 @@ export default function RSTeamManagement() {
   const [saving, setSaving]         = useState(false)
   const [msg, setMsg]               = useState(null)
   const [deleting, setDeleting]     = useState(null)
+  const [assigning, setAssigning]   = useState(false)
 
   useEffect(() => {
     const q = fsQuery(collection(db, 'rs_teams'), orderBy('name'))
@@ -142,6 +143,37 @@ export default function RSTeamManagement() {
     setDeleting(id); await deleteDoc(doc(db, 'rs_teams', id)); setDeleting(null)
   }
 
+  const handleQuickAssign = async () => {
+    const unassigned = teams.filter(t => !t.assignedJudgeUid)
+    if (unassigned.length === 0) { showMsg('success', 'Todos los equipos ya tienen juez asignado.'); return }
+    const eligible = CATEGORIES.reduce((acc, cat) => {
+      acc[cat] = judges.filter(j => j.category === cat)
+      return acc
+    }, {})
+    const noJudge = unassigned.filter(t => (eligible[t.category] || []).length === 0)
+    if (noJudge.length === unassigned.length) { showMsg('error', 'No hay jueces disponibles para las categorías sin asignar.'); return }
+    if (!confirm(`¿Asignar jueces al azar a ${unassigned.length} equipo(s) sin asignar?`)) return
+    setAssigning(true)
+    try {
+      const assignCount = {}
+      teams.forEach(t => { if (t.assignedJudgeUid) assignCount[t.assignedJudgeUid] = (assignCount[t.assignedJudgeUid] || 0) + 1 })
+      const batch = writeBatch(db)
+      for (const team of unassigned) {
+        const pool = eligible[team.category] || []
+        if (pool.length === 0) continue
+        const min = Math.min(...pool.map(j => assignCount[j.id] || 0))
+        const least = pool.filter(j => (assignCount[j.id] || 0) === min)
+        const picked = least[Math.floor(Math.random() * least.length)]
+        batch.update(doc(db, 'rs_teams', team.id), { assignedJudgeUid: picked.id })
+        assignCount[picked.id] = (assignCount[picked.id] || 0) + 1
+      }
+      await batch.commit()
+      showMsg('success', `✅ ${unassigned.filter(t => (eligible[t.category] || []).length > 0).length} equipo(s) asignados correctamente.`)
+    } catch (err) {
+      showMsg('error', err.message || 'Error en asignación rápida.')
+    } finally { setAssigning(false) }
+  }
+
   const counts = { all: teams.length }
   CATEGORIES.forEach(c => { counts[c] = teams.filter(t => t.category === c).length })
 
@@ -152,9 +184,17 @@ export default function RSTeamManagement() {
           <h1 className="text-2xl md:text-3xl font-extrabold text-white">Equipos · RoboStarter</h1>
           <p className="text-gray-400 mt-1">{filtered.length} de {teams.length} equipos · Categoría formativa</p>
         </div>
-        <button onClick={openCreate} className="btn-primary flex items-center gap-2 self-start sm:self-auto">
-          <Plus size={18} /> Nuevo Equipo
-        </button>
+        <div className="flex gap-2 self-start sm:self-auto">
+          <button onClick={handleQuickAssign} disabled={assigning}
+            className="btn-ghost flex items-center gap-2 text-sm disabled:opacity-50"
+            title="Asignar jueces al azar a equipos sin asignación">
+            {assigning ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Shuffle size={16} />}
+            Asignación rápida
+          </button>
+          <button onClick={openCreate} className="btn-primary flex items-center gap-2">
+            <Plus size={18} /> Nuevo Equipo
+          </button>
+        </div>
       </div>
 
       {/* Category filter */}

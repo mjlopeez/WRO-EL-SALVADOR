@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Users, Plus, Trash2, Pencil, X, Search, AlertCircle, CheckCircle, Github, ExternalLink, UserCheck, ChevronDown, ChevronUp, Building2, GraduationCap } from 'lucide-react'
+import { Users, Plus, Trash2, Pencil, X, Search, AlertCircle, CheckCircle, Github, ExternalLink, UserCheck, ChevronDown, ChevronUp, Shuffle, Building2, GraduationCap } from 'lucide-react'
 import {
   collection, addDoc, deleteDoc, doc, updateDoc,
-  onSnapshot, orderBy, query as fsQuery, serverTimestamp, where
+  onSnapshot, orderBy, query as fsQuery, serverTimestamp, where, writeBatch
 } from 'firebase/firestore'
 import { db } from '../../firebase'
 
@@ -170,6 +170,32 @@ export default function FETeamManagement() {
     setDeleting(null)
   }
 
+  const [assigning, setAssigning] = useState(false)
+
+  const handleQuickAssign = async () => {
+    const unassigned = teams.filter(t => !t.assignedJudgeUid)
+    if (unassigned.length === 0) { showMsg('success', 'Todos los equipos ya tienen juez asignado.'); return }
+    if (feJudges.length === 0) { showMsg('error', 'No hay jueces FE disponibles.'); return }
+    if (!confirm(`¿Asignar jueces al azar a ${unassigned.length} equipo(s) sin asignar?`)) return
+    setAssigning(true)
+    try {
+      const assignCount = {}
+      teams.forEach(t => { if (t.assignedJudgeUid) assignCount[t.assignedJudgeUid] = (assignCount[t.assignedJudgeUid] || 0) + 1 })
+      const batch = writeBatch(db)
+      for (const team of unassigned) {
+        const min = Math.min(...feJudges.map(j => assignCount[j.id] || 0))
+        const least = feJudges.filter(j => (assignCount[j.id] || 0) === min)
+        const picked = least[Math.floor(Math.random() * least.length)]
+        batch.update(doc(db, 'fe_teams', team.id), { assignedJudgeUid: picked.id })
+        assignCount[picked.id] = (assignCount[picked.id] || 0) + 1
+      }
+      await batch.commit()
+      showMsg('success', `✅ ${unassigned.length} equipo(s) asignados correctamente.`)
+    } catch (err) {
+      showMsg('error', err.message || 'Error en asignación rápida.')
+    } finally { setAssigning(false) }
+  }
+
   return (
     <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -16 }} transition={{ duration: 0.25 }}>
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
@@ -177,9 +203,17 @@ export default function FETeamManagement() {
           <h1 className="text-2xl md:text-3xl font-extrabold text-white">Equipos · Future Engineers</h1>
           <p className="text-gray-400 mt-1">{filtered.length} de {teams.length} equipos · 14–22 años</p>
         </div>
-        <button onClick={openCreate} className="btn-primary flex items-center gap-2 self-start sm:self-auto">
-          <Plus size={18} /> Nuevo Equipo
-        </button>
+        <div className="flex gap-2 self-start sm:self-auto">
+          <button onClick={handleQuickAssign} disabled={assigning}
+            className="btn-ghost flex items-center gap-2 text-sm disabled:opacity-50"
+            title="Asignar jueces al azar a equipos sin asignación">
+            {assigning ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Shuffle size={16} />}
+            Asignación rápida
+          </button>
+          <button onClick={openCreate} className="btn-primary flex items-center gap-2 self-start sm:self-auto">
+            <Plus size={18} /> Nuevo Equipo
+          </button>
+        </div>
       </div>
 
       {/* Search */}

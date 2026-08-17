@@ -134,12 +134,7 @@ export default function RSAdminView({ tab, setTab }) {
   return (
     <Suspense fallback={<LoadingView />}>
       {tab === 'overview'   && <OverviewTab setTab={setTab} />}
-      {tab === 'equipos'    && (
-        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
-          <h1 className="text-2xl font-extrabold text-white mb-6">Equipos RoboStarter</h1>
-          <TeamManagement />
-        </motion.div>
-      )}
+      {tab === 'equipos'    && <TeamManagement />}
       {tab === 'resultados' && (
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
           <h1 className="text-2xl font-extrabold text-white mb-6">Resultados RoboStarter</h1>
