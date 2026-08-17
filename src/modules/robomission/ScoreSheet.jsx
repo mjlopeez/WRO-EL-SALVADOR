@@ -178,10 +178,12 @@ export default function ScoreSheet({ team, category, round, judgeUid, judgeName 
       await updateDoc(doc(db, 'rm_scores', docId), { finalized: true, finalizedAt: new Date().toISOString() })
       setFinalized(true)
       onSaved?.()
-    } catch {
-      alert('No se pudo finalizar. Intenta de nuevo.')
+    } catch (err) {
+      console.error('Finalize error:', err?.code, err?.message, err)
+      alert(`No se pudo finalizar. Error: ${err?.code || err?.message || 'desconocido'}`)
     } finally {
-      setFinalizing(false) }
+      setFinalizing(false)
+    }
   }
 
   const handleReset = () => {
