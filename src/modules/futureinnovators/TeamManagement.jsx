@@ -22,7 +22,7 @@ function JudgeAssignment({ team, judges }) {
   const [saving, setSaving] = useState(false)
 
   const assignedUids = team.assignedJudgeUids || []
-  const fiJudges = judges.filter(j => j.modules?.includes('fi'))
+  const fiJudges = judges.filter(j => j.modules?.includes('fi') && j.category === team.category)
   const assignedJudges = fiJudges.filter(j => assignedUids.includes(j.id))
   const availableJudges = fiJudges.filter(j => !assignedUids.includes(j.id))
 
@@ -92,7 +92,7 @@ function JudgeAssignment({ team, judges }) {
             )}
 
             {fiJudges.length === 0 && (
-              <p className="text-xs text-gray-600 italic py-1">No hay jueces de FI registrados.</p>
+              <p className="text-xs text-gray-600 italic py-1">No hay jueces FI para categoría {team.category}.</p>
             )}
           </motion.div>
         )}
@@ -187,28 +187,56 @@ export default function FITeamManagement() {
   const [assigning, setAssigning] = useState(false)
 
   const handleQuickAssign = async () => {
-    // FI uses assignedJudgeUids (array) — a team is unassigned if the array is empty/missing
-    const unassigned = teams.filter(t => !t.assignedJudgeUids?.length)
-    if (unassigned.length === 0) { showMsg('success', 'Todos los equipos ya tienen juez asignado.'); return }
-    const fiJudges = judges.filter(j => j.modules?.includes('fi'))
-    if (fiJudges.length === 0) { showMsg('error', 'No hay jueces FI disponibles.'); return }
-    if (!confirm(`¿Asignar un juez al azar a ${unassigned.length} equipo(s) sin asignar?`)) return
+    // FI: teams need 2 judges each, matched by category
+    const unassigned = teams.filter(t => (t.assignedJudgeUids?.length || 0) < 2)
+    if (unassigned.length === 0) { showMsg('success', 'Todos los equipos ya tienen 2 jueces asignados.'); return }
+
+    // Judges are grouped by category (judges have a `category` field matching team category)
+    const byCategory = CATEGORIES.reduce((acc, cat) => {
+      acc[cat] = judges.filter(j => j.modules?.includes('fi') && j.category === cat)
+      return acc
+    }, {})
+
+    const missing = unassigned.filter(t => (byCategory[t.category] || []).length < 2).map(t => `${t.name} (${t.category})`)
+    if (missing.length > 0 && missing.length === unassigned.length) {
+      showMsg('error', `Sin suficientes jueces en: ${missing.join(', ')}`)
+      return
+    }
+
+    if (!confirm(`¿Asignar 2 jueces por categoría a ${unassigned.length} equipo(s)?`)) return
     setAssigning(true)
     try {
       const assignCount = {}
       teams.forEach(t => (t.assignedJudgeUids || []).forEach(uid => {
         assignCount[uid] = (assignCount[uid] || 0) + 1
       }))
+
       const batch = writeBatch(db)
       for (const team of unassigned) {
-        const min = Math.min(...fiJudges.map(j => assignCount[j.id] || 0))
-        const least = fiJudges.filter(j => (assignCount[j.id] || 0) === min)
-        const picked = least[Math.floor(Math.random() * least.length)]
-        batch.update(doc(db, 'fi_teams', team.id), { assignedJudgeUids: [picked.id] })
-        assignCount[picked.id] = (assignCount[picked.id] || 0) + 1
+        const pool = byCategory[team.category] || []
+        if (pool.length === 0) continue
+
+        const current = team.assignedJudgeUids || []
+        const needed = 2 - current.length
+        const available = pool.filter(j => !current.includes(j.id))
+
+        // Pick judges with fewest assignments first
+        const picked = []
+        for (let i = 0; i < needed && available.length > 0; i++) {
+          const min = Math.min(...available.map(j => assignCount[j.id] || 0))
+          const least = available.filter(j => (assignCount[j.id] || 0) === min)
+          const choice = least[Math.floor(Math.random() * least.length)]
+          picked.push(choice.id)
+          assignCount[choice.id] = (assignCount[choice.id] || 0) + 1
+          available.splice(available.indexOf(choice), 1)
+        }
+
+        if (picked.length > 0) {
+          batch.update(doc(db, 'fi_teams', team.id), { assignedJudgeUids: [...current, ...picked] })
+        }
       }
       await batch.commit()
-      showMsg('success', `✅ ${unassigned.length} equipo(s) asignados correctamente.`)
+      showMsg('success', `✅ Asignación completada — 2 jueces por equipo según categoría.`)
     } catch (err) {
       showMsg('error', err.message || 'Error en asignación rápida.')
     } finally { setAssigning(false) }
