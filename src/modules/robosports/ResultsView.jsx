@@ -57,11 +57,10 @@ export default function RSPResultsView() {
     <div className="space-y-4">
       {/* Toolbar */}
       <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex gap-1 flex-wrap">
           {['all', ...ROUNDS].map(r => (
             <button key={r} onClick={() => setRoundTab(r)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
-                roundTab === r ? `${cc.bg} ${cc.border} ${cc.text}` : 'border-dark-500 text-gray-500 hover:text-gray-300'
-              }`}>
+              className={'px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ' + (roundTab === r ? [cc.bg, cc.border, cc.text].join(' ') : 'border-dark-500 text-gray-500 hover:text-gray-300')}>
               {r === 'all' ? 'Todos' : r}
             </button>
           ))}
