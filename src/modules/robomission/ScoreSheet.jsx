@@ -147,16 +147,17 @@ export default function ScoreSheet({ team, category, round, judgeUid, judgeName 
     setSaveError(null)
     try {
       await setDoc(doc(db, 'rm_scores', docId), {
-        teamId:   team.id,
-        teamName: team.name,
+        teamId:    team.id,
+        teamName:  team.name,
         category,
         round,
         judgeUid,
         ...(judgeName ? { judgeName } : {}),
         scores,
-        total:    computeTotal(),
-        seconds:  seconds || null,
-        savedAt:  new Date().toISOString(),
+        total:     computeTotal(),
+        seconds:   seconds || null,
+        savedAt:   new Date().toISOString(),
+        finalized: false,
       })
       setSaved(true)
       setShowToast(true)
