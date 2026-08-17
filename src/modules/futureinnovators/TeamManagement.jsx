@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Users, Plus, Trash2, Pencil, X, Search, AlertCircle, CheckCircle, UserCheck, ChevronDown, ChevronUp } from 'lucide-react'
+import { Users, Plus, Trash2, Pencil, X, Search, AlertCircle, CheckCircle, UserCheck, ChevronDown, ChevronUp, Building2, GraduationCap, Hash } from 'lucide-react'
 import {
   collection, addDoc, deleteDoc, doc, updateDoc,
   onSnapshot, orderBy, query as fsQuery, serverTimestamp, arrayUnion, arrayRemove, where
@@ -269,36 +269,52 @@ export default function FITeamManagement() {
           </button>
         </div>
       ) : (
-        <div className="space-y-2">
-          {filtered.map((t, i) => (
-            <motion.div key={t.id} initial={{ opacity: 0, x: -16 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.03 }}
-              className="card">
-              <div className="flex items-center gap-3">
-                <div className={`w-10 h-10 rounded-xl border flex items-center justify-center font-bold text-sm shrink-0 ${catColors[t.category] || catColors.elementary}`}>
-                  {t.number || t.name?.[0]?.toUpperCase()}
+        <div className="space-y-3">
+          {filtered.map((t, i) => {
+            const members = [t.member1, t.member2, t.member3].filter(Boolean)
+            return (
+              <motion.div key={t.id} initial={{ opacity: 0, x: -16 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.03 }}
+                className="card-hover">
+                <div className="flex items-start gap-4">
+                  <div className={`w-14 h-14 rounded-xl border flex items-center justify-center font-bold text-xs shrink-0 text-center px-1 ${catColors[t.category] || catColors.elementary}`}>
+                    {t.number || t.name?.[0]?.toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0 space-y-1.5">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <p className="font-bold text-white text-base leading-tight">{t.name}</p>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className={`text-xs px-2 py-0.5 rounded-full border capitalize ${catColors[t.category] || catColors.elementary}`}>
+                          {CATEGORY_META[t.category]?.label || t.category}
+                        </span>
+                        <button onClick={() => openEdit(t)} className="text-gray-600 hover:text-violet-400 transition-colors p-1"><Pencil size={14} /></button>
+                        <button onClick={() => handleDelete(t.id)} disabled={deleting === t.id} className="text-gray-600 hover:text-red-400 transition-colors p-1 disabled:opacity-40">
+                          {deleting === t.id ? <span className="w-3.5 h-3.5 border-2 border-gray-500 border-t-red-400 rounded-full animate-spin inline-block" /> : <Trash2 size={14} />}
+                        </button>
+                      </div>
+                    </div>
+                    {(t.school || t.city) && (
+                      <p className="text-sm text-gray-400 flex items-center gap-1.5">
+                        <Building2 size={12} className="shrink-0 text-gray-600" />
+                        {[t.school, t.city].filter(Boolean).join(' · ')}
+                      </p>
+                    )}
+                    {members.length > 0 && (
+                      <p className="text-xs text-gray-500 flex items-center gap-1.5">
+                        <GraduationCap size={12} className="shrink-0 text-gray-600" />
+                        {members.join(' · ')}
+                        {t.coach && <span className="text-gray-600 ml-1">· Coach: {t.coach}</span>}
+                      </p>
+                    )}
+                    <div className="flex items-center gap-3 flex-wrap pt-0.5">
+                      <span className="text-xs text-gray-700 font-mono flex items-center gap-1"><Hash size={10} />{t.id}</span>
+                    </div>
+                    {/* Judge assignment panel */}
+                    <JudgeAssignment team={t} judges={judges} />
+                  </div>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-white text-sm truncate">{t.name}</p>
-                  {t.school && <p className="text-xs text-gray-500 truncate">{t.school}</p>}
-                {(t.member1 || t.members) && <p className="text-xs text-gray-600 truncate">{[t.member1, t.member2, t.member3].filter(Boolean).join(' · ') || t.members}</p>}
-                </div>
-                <span className={`text-xs px-2 py-0.5 rounded-full border capitalize shrink-0 hidden sm:inline ${catColors[t.category] || catColors.elementary}`}>
-                  {CATEGORY_META[t.category]?.label || t.category}
-                </span>
-                <button onClick={() => openEdit(t)} className="text-gray-600 hover:text-violet-400 transition-colors p-1">
-                  <Pencil size={15} />
-                </button>
-                <button onClick={() => handleDelete(t.id)} disabled={deleting === t.id} className="text-gray-600 hover:text-red-400 transition-colors p-1 disabled:opacity-40">
-                  {deleting === t.id
-                    ? <span className="w-4 h-4 border-2 border-gray-500 border-t-red-400 rounded-full animate-spin inline-block" />
-                    : <Trash2 size={15} />
-                  }
-                </button>
-              </div>
-              {/* Judge assignment panel */}
-              <JudgeAssignment team={t} judges={judges} />
-            </motion.div>
-          ))}
+              </motion.div>
+            )
+          })}
         </div>
       )}
 

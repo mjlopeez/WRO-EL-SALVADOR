@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  Plus, Pencil, Trash2, X, Save, Users, ChevronDown, UserCheck, Search
+  Plus, Pencil, Trash2, X, Save, Users, ChevronDown, UserCheck, Search, Building2, GraduationCap, Hash
 } from 'lucide-react'
 import {
   collection, addDoc, updateDoc, deleteDoc,
@@ -155,47 +155,56 @@ export default function RSPTeamManagement() {
       </div>
 
       {/* Team list */}
-      <div className="space-y-2">
+      <div className="space-y-3">
         {filtered.length === 0 && (
           <div className="card text-center py-10">
             <Users size={36} className="text-gray-600 mx-auto mb-3" />
             <p className="text-gray-400 text-sm">{teams.length === 0 ? 'Sin equipos aún.' : 'Sin resultados.'}</p>
           </div>
         )}
-        {filtered.map((team, i) => (
-          <motion.div key={team.id} initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: i * 0.03 }} className="card flex items-center gap-3">
-            {/* Avatar */}
-            <div className={`w-10 h-10 rounded-xl ${cc.bg} border ${cc.border} flex items-center justify-center font-bold ${cc.text} text-sm shrink-0`}>
-              {team.number || team.name?.[0]?.toUpperCase()}
-            </div>
-            {/* Info */}
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <p className="font-semibold text-white text-sm truncate">{team.name}</p>
-                {team.number && <span className="text-xs text-gray-500">#{team.number}</span>}
-                <span className="text-xs px-2 py-0.5 rounded-full bg-sky-500/10 border border-sky-500/30 text-sky-400">Open</span>
+        {filtered.map((team, i) => {
+          const members = [team.member1, team.member2, team.member3, team.member4].filter(Boolean)
+          return (
+            <motion.div key={team.id} initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: i * 0.03 }} className="card-hover">
+              <div className="flex items-start gap-4">
+                <div className={`w-14 h-14 rounded-xl ${cc.bg} border ${cc.border} flex items-center justify-center font-bold ${cc.text} text-xs shrink-0 text-center px-1`}>
+                  {team.number || team.name?.[0]?.toUpperCase()}
+                </div>
+                <div className="flex-1 min-w-0 space-y-1.5">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <p className="font-bold text-white text-base leading-tight">{team.name}</p>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-sky-500/10 border border-sky-500/30 text-sky-400">Open</span>
+                      <button onClick={() => openEdit(team)} className="text-gray-600 hover:text-sky-400 transition-colors p-1"><Pencil size={14} /></button>
+                      <button onClick={() => handleDelete(team.id)} disabled={deleting === team.id}
+                        className="text-gray-600 hover:text-red-400 transition-colors p-1 disabled:opacity-40">
+                        {deleting === team.id ? <span className="w-3.5 h-3.5 border-2 border-gray-500 border-t-red-400 rounded-full animate-spin inline-block" /> : <Trash2 size={14} />}
+                      </button>
+                    </div>
+                  </div>
+                  {(team.school || team.city) && (
+                    <p className="text-sm text-gray-400 flex items-center gap-1.5">
+                      <Building2 size={12} className="shrink-0 text-gray-600" />
+                      {[team.school, team.institution, team.city].filter(Boolean).join(' · ')}
+                    </p>
+                  )}
+                  {members.length > 0 && (
+                    <p className="text-xs text-gray-500 flex items-center gap-1.5">
+                      <GraduationCap size={12} className="shrink-0 text-gray-600" />
+                      {members.join(' · ')}
+                      {team.coach && <span className="text-gray-600 ml-1">· Coach: {team.coach}</span>}
+                    </p>
+                  )}
+                  <div className="flex items-center gap-3 flex-wrap pt-0.5">
+                    <JudgeSelector team={team} judges={judges} />
+                    <span className="text-xs text-gray-700 font-mono flex items-center gap-1"><Hash size={10} />{team.id}</span>
+                  </div>
+                </div>
               </div>
-              {team.institution && <p className="text-xs text-gray-500 truncate">{team.institution}</p>}
-              <div className="flex flex-wrap gap-1 mt-1">
-                {[team.member1, team.member2, team.member3, team.member4].filter(Boolean).map((m, j) => (
-                  <span key={j} className="text-xs px-1.5 py-0.5 rounded bg-dark-600 text-gray-400">{m}</span>
-                ))}
-              </div>
-            </div>
-            {/* Actions */}
-            <div className="flex items-center gap-2 shrink-0">
-              <JudgeSelector team={team} judges={judges} />
-              <button onClick={() => openEdit(team)} className="text-gray-500 hover:text-sky-400 p-1.5 transition-colors">
-                <Pencil size={15} />
-              </button>
-              <button onClick={() => handleDelete(team.id)} disabled={deleting === team.id}
-                className="text-gray-500 hover:text-red-400 p-1.5 transition-colors disabled:opacity-40">
-                <Trash2 size={15} />
-              </button>
-            </div>
-          </motion.div>
-        ))}
+            </motion.div>
+          )
+        })}
       </div>
 
       {/* Form modal */}
