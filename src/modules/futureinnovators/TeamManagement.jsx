@@ -187,27 +187,24 @@ export default function FITeamManagement() {
   const [assigning, setAssigning] = useState(false)
 
   const handleQuickAssign = async () => {
-    const unassigned = teams.filter(t => !t.assignedJudgeUid)
+    // FI uses assignedJudgeUids (array) — a team is unassigned if the array is empty/missing
+    const unassigned = teams.filter(t => !t.assignedJudgeUids?.length)
     if (unassigned.length === 0) { showMsg('success', 'Todos los equipos ya tienen juez asignado.'); return }
-    const eligible = CATEGORIES.reduce((acc, cat) => {
-      acc[cat] = judges.filter(j => j.modules?.includes('fi') && j.category === cat)
-      return acc
-    }, {})
-    // FI judges may not have category — fall back to all FI judges
     const fiJudges = judges.filter(j => j.modules?.includes('fi'))
     if (fiJudges.length === 0) { showMsg('error', 'No hay jueces FI disponibles.'); return }
-    if (!confirm(`¿Asignar jueces al azar a ${unassigned.length} equipo(s) sin asignar?`)) return
+    if (!confirm(`¿Asignar un juez al azar a ${unassigned.length} equipo(s) sin asignar?`)) return
     setAssigning(true)
     try {
       const assignCount = {}
-      teams.forEach(t => { if (t.assignedJudgeUid) assignCount[t.assignedJudgeUid] = (assignCount[t.assignedJudgeUid] || 0) + 1 })
+      teams.forEach(t => (t.assignedJudgeUids || []).forEach(uid => {
+        assignCount[uid] = (assignCount[uid] || 0) + 1
+      }))
       const batch = writeBatch(db)
       for (const team of unassigned) {
-        const pool = (eligible[team.category] || []).length > 0 ? eligible[team.category] : fiJudges
-        const min = Math.min(...pool.map(j => assignCount[j.id] || 0))
-        const least = pool.filter(j => (assignCount[j.id] || 0) === min)
+        const min = Math.min(...fiJudges.map(j => assignCount[j.id] || 0))
+        const least = fiJudges.filter(j => (assignCount[j.id] || 0) === min)
         const picked = least[Math.floor(Math.random() * least.length)]
-        batch.update(doc(db, 'fi_teams', team.id), { assignedJudgeUid: picked.id })
+        batch.update(doc(db, 'fi_teams', team.id), { assignedJudgeUids: [picked.id] })
         assignCount[picked.id] = (assignCount[picked.id] || 0) + 1
       }
       await batch.commit()
