@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Users, Plus, Trash2, Pencil, X, Search, AlertCircle, CheckCircle, UserCheck, ChevronDown, ChevronUp, Building2, GraduationCap, Hash } from 'lucide-react'
+import { Users, Plus, Trash2, Pencil, X, Search, AlertCircle, CheckCircle, UserCheck, ChevronDown, ChevronUp, Building2, GraduationCap } from 'lucide-react'
 import {
   collection, addDoc, deleteDoc, doc, updateDoc,
   onSnapshot, orderBy, query as fsQuery, serverTimestamp, arrayUnion, arrayRemove, where
@@ -306,7 +306,6 @@ export default function FITeamManagement() {
                       </p>
                     )}
                     <div className="flex items-center gap-3 flex-wrap pt-0.5">
-                      <span className="text-xs text-gray-700 font-mono flex items-center gap-1"><Hash size={10} />{t.id}</span>
                     </div>
                     {/* Judge assignment panel */}
                     <JudgeAssignment team={t} judges={judges} />
