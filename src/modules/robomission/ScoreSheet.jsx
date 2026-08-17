@@ -175,7 +175,25 @@ export default function ScoreSheet({ team, category, round, judgeUid, judgeName 
     if (!confirm(`¿Finalizar Ronda ${round}? Ya no podrás modificar los puntajes a menos que el administrador lo permita.`)) return
     setFinalizing(true)
     try {
-      await updateDoc(doc(db, 'rm_scores', docId), { finalized: true, finalizedAt: new Date().toISOString() })
+      // Debug: check current doc state before finalizing
+      const snap = await getDoc(doc(db, 'rm_scores', docId))
+      console.log('Doc exists:', snap.exists(), '| finalized field:', snap.data()?.finalized, '| docId:', docId)
+
+      // Use setDoc (full overwrite) instead of updateDoc to avoid update rule issues
+      await setDoc(doc(db, 'rm_scores', docId), {
+        teamId:       team.id,
+        teamName:     team.name,
+        category,
+        round,
+        judgeUid,
+        ...(judgeName ? { judgeName } : {}),
+        scores,
+        total:        computeTotal(),
+        seconds:      seconds || null,
+        savedAt:      new Date().toISOString(),
+        finalized:    true,
+        finalizedAt:  new Date().toISOString(),
+      })
       setFinalized(true)
       onSaved?.()
     } catch (err) {
