@@ -188,7 +188,11 @@ export default function FITeamManagement() {
 
   const handleQuickAssign = async () => {
     // FI: teams need 2 judges each, matched by category
-    const needsAssign = teams.filter(t => (t.assignedJudgeUids?.length || 0) < 2)
+    // Count only judges valid for the team's category
+    const validCount = (team) => judges.filter(j =>
+      j.modules?.includes('fi') && j.category === team.category && (team.assignedJudgeUids || []).includes(j.id)
+    ).length
+    const needsAssign = teams.filter(t => validCount(t) < 2)
     if (needsAssign.length === 0) { showMsg('success', 'Todos los equipos ya tienen 2 jueces asignados.'); return }
 
     const byCategory = CATEGORIES.reduce((acc, cat) => {
@@ -212,7 +216,8 @@ export default function FITeamManagement() {
         const pool = byCategory[team.category] || []
         if (pool.length === 0) continue
 
-        const current = team.assignedJudgeUids || []
+        // Only keep UIDs that belong to valid judges of this category
+        const current = (team.assignedJudgeUids || []).filter(uid => pool.some(j => j.id === uid))
         const needed = 2 - current.length
         const available = [...pool.filter(j => !current.includes(j.id))]
 
@@ -334,6 +339,10 @@ export default function FITeamManagement() {
         <div className="space-y-3">
           {filtered.map((t, i) => {
             const members = [t.member1, t.member2, t.member3].filter(Boolean)
+            // Count only judges valid for this team's category
+            const validJudgeCount = judges.filter(j =>
+              j.modules?.includes('fi') && j.category === t.category && (t.assignedJudgeUids || []).includes(j.id)
+            ).length
             return (
               <motion.div key={t.id} initial={{ opacity: 0, x: -16 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.03 }}
                 className="card-hover">
@@ -348,11 +357,11 @@ export default function FITeamManagement() {
                         <span className={`text-xs px-2 py-0.5 rounded-full border capitalize ${catColors[t.category] || catColors.elementary}`}>
                           {CATEGORY_META[t.category]?.label || t.category}
                         </span>
-                        {(t.assignedJudgeUids?.length || 0) < 2 && (
-                          <span title={`Faltan ${2 - (t.assignedJudgeUids?.length || 0)} juez(es)`}
+                        {validJudgeCount < 2 && (
+                          <span title={`Faltan ${2 - validJudgeCount} juez(es) de categoría ${t.category}`}
                             className="flex items-center gap-1 text-xs text-amber-400 bg-amber-400/10 border border-amber-400/30 px-2 py-0.5 rounded-full">
                             <TriangleAlert size={11} />
-                            {t.assignedJudgeUids?.length || 0}/2
+                            {validJudgeCount}/2
                           </span>
                         )}
                         <button onClick={() => openEdit(t)} className="text-gray-600 hover:text-violet-400 transition-colors p-1"><Pencil size={14} /></button>
