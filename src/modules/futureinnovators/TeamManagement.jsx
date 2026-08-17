@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Users, Plus, Trash2, Pencil, X, Search, AlertCircle, CheckCircle, UserCheck, ChevronDown, ChevronUp, Shuffle, Building2, GraduationCap } from 'lucide-react'
+import { Users, Plus, Trash2, Pencil, X, Search, AlertCircle, CheckCircle, UserCheck, ChevronDown, ChevronUp, Shuffle, Building2, GraduationCap, TriangleAlert } from 'lucide-react'
 import {
   collection, addDoc, deleteDoc, doc, updateDoc,
   onSnapshot, orderBy, query as fsQuery, serverTimestamp, arrayUnion, arrayRemove, where, writeBatch
@@ -188,22 +188,18 @@ export default function FITeamManagement() {
 
   const handleQuickAssign = async () => {
     // FI: teams need 2 judges each, matched by category
-    const unassigned = teams.filter(t => (t.assignedJudgeUids?.length || 0) < 2)
-    if (unassigned.length === 0) { showMsg('success', 'Todos los equipos ya tienen 2 jueces asignados.'); return }
+    const needsAssign = teams.filter(t => (t.assignedJudgeUids?.length || 0) < 2)
+    if (needsAssign.length === 0) { showMsg('success', 'Todos los equipos ya tienen 2 jueces asignados.'); return }
 
-    // Judges are grouped by category (judges have a `category` field matching team category)
     const byCategory = CATEGORIES.reduce((acc, cat) => {
       acc[cat] = judges.filter(j => j.modules?.includes('fi') && j.category === cat)
       return acc
     }, {})
 
-    const missing = unassigned.filter(t => (byCategory[t.category] || []).length < 2).map(t => `${t.name} (${t.category})`)
-    if (missing.length > 0 && missing.length === unassigned.length) {
-      showMsg('error', `Sin suficientes jueces en: ${missing.join(', ')}`)
-      return
-    }
+    const canAssign = needsAssign.filter(t => (byCategory[t.category] || []).length > 0)
+    if (canAssign.length === 0) { showMsg('error', 'No hay jueces FI disponibles para ninguna categoría.'); return }
 
-    if (!confirm(`¿Asignar 2 jueces por categoría a ${unassigned.length} equipo(s)?`)) return
+    if (!confirm(`¿Asignar jueces a ${needsAssign.length} equipo(s) con menos de 2 jueces?`)) return
     setAssigning(true)
     try {
       const assignCount = {}
@@ -212,15 +208,14 @@ export default function FITeamManagement() {
       }))
 
       const batch = writeBatch(db)
-      for (const team of unassigned) {
+      for (const team of needsAssign) {
         const pool = byCategory[team.category] || []
         if (pool.length === 0) continue
 
         const current = team.assignedJudgeUids || []
         const needed = 2 - current.length
-        const available = pool.filter(j => !current.includes(j.id))
+        const available = [...pool.filter(j => !current.includes(j.id))]
 
-        // Pick judges with fewest assignments first
         const picked = []
         for (let i = 0; i < needed && available.length > 0; i++) {
           const min = Math.min(...available.map(j => assignCount[j.id] || 0))
@@ -236,7 +231,8 @@ export default function FITeamManagement() {
         }
       }
       await batch.commit()
-      showMsg('success', `✅ Asignación completada — 2 jueces por equipo según categoría.`)
+      const incomplete = needsAssign.filter(t => (byCategory[t.category] || []).length < 2).length
+      showMsg('success', `✅ Asignación completada.${incomplete > 0 ? ` ${incomplete} equipo(s) con menos de 2 jueces por falta de jueces en su categoría.` : ''}`)
     } catch (err) {
       showMsg('error', err.message || 'Error en asignación rápida.')
     } finally { setAssigning(false) }
@@ -352,6 +348,13 @@ export default function FITeamManagement() {
                         <span className={`text-xs px-2 py-0.5 rounded-full border capitalize ${catColors[t.category] || catColors.elementary}`}>
                           {CATEGORY_META[t.category]?.label || t.category}
                         </span>
+                        {(t.assignedJudgeUids?.length || 0) < 2 && (
+                          <span title={`Faltan ${2 - (t.assignedJudgeUids?.length || 0)} juez(es)`}
+                            className="flex items-center gap-1 text-xs text-amber-400 bg-amber-400/10 border border-amber-400/30 px-2 py-0.5 rounded-full">
+                            <TriangleAlert size={11} />
+                            {t.assignedJudgeUids?.length || 0}/2
+                          </span>
+                        )}
                         <button onClick={() => openEdit(t)} className="text-gray-600 hover:text-violet-400 transition-colors p-1"><Pencil size={14} /></button>
                         <button onClick={() => handleDelete(t.id)} disabled={deleting === t.id} className="text-gray-600 hover:text-red-400 transition-colors p-1 disabled:opacity-40">
                           {deleting === t.id ? <span className="w-3.5 h-3.5 border-2 border-gray-500 border-t-red-400 rounded-full animate-spin inline-block" /> : <Trash2 size={14} />}
