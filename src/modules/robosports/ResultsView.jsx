@@ -75,11 +75,12 @@ export default function RSPResultsView() {
       </div>
 
       {publishMsg && (
-        <div className={`flex items-center gap-2 px-4 py-3 rounded-xl text-sm border ${
+        <div className={[
+          'flex items-center gap-2 px-4 py-3 rounded-xl text-sm border',
           publishMsg.type === 'success'
             ? 'bg-green-500/10 border-green-500/20 text-green-400'
             : 'bg-red-500/10 border-red-500/20 text-red-400'
-        }`}>
+        ].join(' ')}>
           <CheckCircle size={15} /> {publishMsg.text}
         </div>
       )}
