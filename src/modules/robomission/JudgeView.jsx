@@ -72,7 +72,7 @@ export default function JudgeView() {
     if (!user || !profile) return
     return onSnapshot(collection(db, 'rm_teams'), snap => {
       const all = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-      setTeams(all.filter(t => t.category === category).sort((a, b) => (a.name || '').localeCompare(b.name || '')))
+      setTeams(all.filter(t => t.category === category && t.assignedJudgeUid === user.uid).sort((a, b) => (a.name || '').localeCompare(b.name || '')))
     })
   }, [user, profile, category])
 
