@@ -209,7 +209,7 @@ const FI_TEAMS = [
   { name: 'My AIS',              number: 'S9-15',  category: 'senior', coach: 'Edwin Italmir Rivas',             member1: 'Dustin Alejandro Avalos Torres',         member2: 'Ricardo Salvador Carías Vargas',       member3: 'César Andrés Retana Meléndez',   judgeId: 'FIS-03' },
   { name: 'Nova Tech',           number: 'S10-15', category: 'senior', coach: 'Gabriela Martínez Álvarez',       member1: 'Fatima Vanessa Gonzáles Ramírez',        member2: 'Magaly Daniela Rodríguez López',       member3: 'Melanie Giselle',                judgeId: 'FIS-03' },
   { name: 'Ohtli',               number: 'S11-15', category: 'senior', coach: 'Douglas Antonio Portillo Vega',  member1: 'Anabella Barrientos Mac Cormack',        member2: 'Andrés Enrique Yurrita Emerson',       member3: 'Mariana José Portillo Bonilla',  judgeId: 'FIS-03' },
-  { name: 'SmartCoffeeCrop',     number: 'S12-15', category: 'senior', coach: 'Josué Ismael Rivas Elías',        member1: 'Maryis Sofía Noguerol Gonzales',         member2: 'Camila Raquel Alvarado Murga',         member3: 'Josette Serrano',                judgeId: 'FIS-03' },
+  { name: 'SmartCoffeeCrop',     number: 'S12-15', category: 'senior', coach: 'Josué Ismael Rivas Elías',        member1: 'Maryis Sofía Noguerol Gonzales',         member2: 'Camila Raquel Alvarado Murga',         member3: 'Josette Serrano',                judgeId: 'FIS-04' },
   { name: 'TechBots',            number: 'S13-15', category: 'senior', coach: 'Carlos Alberto Martínez Alonso', member1: 'Diego Steven Rivera Vega',               member2: 'Gustavo Benjamín Vega Cruz',           member3: 'Rene Mateo Acosta Montoya',      judgeId: 'FIS-04' },
   { name: 'The Engineering Bros', number: 'S14-15', category: 'senior', coach: 'Sergio Manolo Padilla Funes',   member1: 'Kahlil Badi Martin',                     member2: 'Daniel Benjamín Narváez',                                                     judgeId: 'FIS-04' },
   { name: 'VELLUM',              number: 'S15-15', category: 'senior', coach: 'Nataly Elias',                   member1: 'Gabriela Michelle Alvarado Lemus',       member2: 'Rebeca Saraí Gómez Cortez',           member3: 'Josué Elias Pérez Santos',       judgeId: 'FIS-04' },
@@ -373,7 +373,7 @@ const RS_TEAMS = [
   console.log('   FE-01  → 5 equipos FE')
   console.log('   FIE-01 → 3 equipos FI Elementary')
   console.log('   FIJ-02 → 5 equipos FI Junior | FIJ-03 → 5 equipos FI Junior')
-  console.log('   FIS-01..04 → 4/4/4/3 equipos FI Senior')
+  console.log('   FIS-01..04 → 4/4/3/4 equipos FI Senior')
   console.log('   RME-01 → 6 equipos RM Elementary | RME-02 → 6 equipos RM Elementary')
   console.log('   RMJ-01 → 7 | RMJ-02 → 7 | RMJ-03 → 6 equipos RM Junior')
   console.log('   RMS-01 → 7 | RMS-02 → 7 | RMS-03 → 7 equipos RM Senior')
