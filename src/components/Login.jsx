@@ -11,14 +11,20 @@ export default function Login() {
   const [error, setError]     = useState('')
   const [loading, setLoading] = useState(false)
 
+  // Acepta usuario simple (ej: FE-01) o correo completo
+  const resolveEmail = (input) => {
+    const trimmed = input.trim()
+    return trimmed.includes('@') ? trimmed : `${trimmed}@gc.sv`
+  }
+
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
     setLoading(true)
     try {
-      await login(email, password)
+      await login(resolveEmail(email), password)
     } catch {
-      setError('Correo o contraseña incorrectos.')
+      setError('Usuario o contraseña incorrectos.')
     } finally {
       setLoading(false)
     }
@@ -75,15 +81,15 @@ export default function Login() {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm text-gray-400 mb-1.5 font-medium">Correo electrónico</label>
+              <label className="block text-sm text-gray-400 mb-1.5 font-medium">Correo electrónico / Usuario</label>
               <input
-                type="email"
+                type="text"
                 className="input-field"
-                placeholder="usuario@ejemplo.com"
+                placeholder="Ej: FE-01 o admin@ejemplo.com"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
                 required
-                autoComplete="email"
+                autoComplete="username"
               />
             </div>
 
