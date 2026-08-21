@@ -550,6 +550,65 @@ function TeamInfoCard({ team }) {
   )
 }
 
+// ─── Confirm dialog ───────────────────────────────────────────────────────────
+function ConfirmDialog({ label = 'evaluación', onConfirm, onCancel }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+      <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+        className="card max-w-sm w-full border-yellow-500/40 bg-dark-800">
+        <div className="text-center mb-4">
+          <span className="text-4xl">⚠️</span>
+          <p className="font-bold text-white text-lg mt-2">¿Enviar {label}?</p>
+          <p className="text-sm text-gray-400 mt-1">
+            Esta acción es <span className="text-yellow-400 font-semibold">permanente</span>.
+            Una vez enviada no podrás hacer cambios.
+          </p>
+        </div>
+        <div className="flex gap-3">
+          <button onClick={onCancel}
+            className="flex-1 py-2.5 rounded-xl font-bold text-sm border border-dark-500 text-gray-400 hover:text-white hover:border-gray-500 transition-all">
+            Cancelar
+          </button>
+          <button onClick={onConfirm}
+            className="flex-1 py-2.5 rounded-xl font-bold text-sm bg-green-500/20 border border-green-500/50 text-green-400 hover:bg-green-500/30 transition-all">
+            Sí, enviar
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  )
+}
+
+// ─── Botones Guardar / Enviar por ronda ───────────────────────────────────────
+function RoundButtons({ roundKey, isFinalized, saving, saved, onSave, onSubmit }) {
+  if (isFinalized) {
+    return (
+      <div className="flex items-center justify-center gap-2 mb-4 py-2.5 rounded-xl bg-green-500/10 border border-green-500/20 text-green-400 text-sm font-bold">
+        <CheckCircle2 size={14} /> Ronda enviada · no se pueden editar
+      </div>
+    )
+  }
+  const isSaving = saving === roundKey
+  const isSaved  = saved  === roundKey
+  return (
+    <div className="flex gap-2 mb-4">
+      <button onClick={onSave} disabled={isSaving}
+        className="flex-1 py-2.5 rounded-xl font-bold border border-dark-500 text-gray-300 text-sm flex items-center justify-center gap-2 disabled:opacity-50 hover:border-gray-400 hover:text-white transition-all">
+        {isSaving
+          ? <span className="w-4 h-4 border-2 border-gray-500/30 border-t-gray-400 rounded-full animate-spin" />
+          : isSaved
+          ? <><CheckCircle2 size={14} className="text-green-400" /> Guardado</>
+          : <><Save size={14} /> Guardar</>
+        }
+      </button>
+      <button onClick={onSubmit} disabled={isSaving}
+        className="flex-1 py-2.5 rounded-xl font-bold border border-green-500/40 bg-green-500/10 text-green-400 text-sm flex items-center justify-center gap-2 disabled:opacity-50 hover:bg-green-500/20 transition-all">
+        <CheckCircle2 size={14} /> Enviar ronda
+      </button>
+    </div>
+  )
+}
+
 // ─── TeamScoring ──────────────────────────────────────────────────────────────
 const SECTION_TABS = [
   { id: 'abierto',    label: '🟢 Abierto'    },
@@ -562,19 +621,19 @@ function TeamScoring({ team, onClose }) {
   const { user } = useAuth()
   const scoreDocId = `${team.id}_${user.uid}`
 
-  // Data state — mirrors fe_scores document structure
   const [abierto,    setAbierto]    = useState({ r1: {}, r2: {} })
   const [obstaculos, setObstaculos] = useState({ r1: {}, r2: {} })
   const [diario,     setDiario]     = useState({ scores: {} })
 
   const [tab,        setTab]        = useState('abierto')
-  const [saving,     setSaving]     = useState(false)
-  const [saved,      setSaved]      = useState(false)
+  // saving / saved = string key like 'abierto_r1' | 'obstaculos_r2' | 'diario' | null
+  const [saving,     setSaving]     = useState(null)
+  const [saved,      setSaved]      = useState(null)
   const [hasData,    setHasData]    = useState(false)
-  const [finalized,  setFinalized]  = useState(false)
-  const [showConfirm, setShowConfirm] = useState(false)
+  // showConfirm = { section, round, label } | null
+  const [showConfirm, setShowConfirm] = useState(null)
 
-  // Load saved data
+  // Load saved data (including per-round finalized flags inside round objects)
   useEffect(() => {
     getDoc(doc(db, 'fe_scores', scoreDocId)).then(snap => {
       if (!snap.exists()) return
@@ -582,33 +641,64 @@ function TeamScoring({ team, onClose }) {
       if (d.abierto)    setAbierto(d.abierto)
       if (d.obstaculos) setObstaculos(d.obstaculos)
       if (d.diario)     setDiario(d.diario)
-      if (d.finalized)  setFinalized(true)
       setHasData(true)
     })
   }, [scoreDocId])
 
-  const buildPayload = (fin = false) => {
-    const data = { teamId: team.id, abierto, obstaculos, diario, judgeUid: user.uid, finalized: fin, updatedAt: serverTimestamp() }
+  // Build full Firestore payload using given round/diario data
+  const buildPayload = (ab, ob, di) => {
+    const allFinalized =
+      ab.r1?.finalized && ab.r2?.finalized &&
+      ob.r1?.finalized && ob.r2?.finalized &&
+      di.finalized
+    const data = {
+      teamId: team.id, abierto: ab, obstaculos: ob, diario: di,
+      judgeUid: user.uid,
+      finalized: !!allFinalized,
+      updatedAt: serverTimestamp(),
+    }
     data.grandTotal = computeGrandTotal(data)
     return data
   }
 
-  const handleSave = async () => {
-    setSaving(true)
-    await setDoc(doc(db, 'fe_scores', scoreDocId), buildPayload(false), { merge: true })
-    setSaving(false)
-    setSaved(true)
+  // Generic save (no finalization change) — persists current state
+  const doSave = async (key, ab, ob, di) => {
+    setSaving(key)
+    await setDoc(doc(db, 'fe_scores', scoreDocId), buildPayload(ab, ob, di), { merge: true })
+    setSaving(null)
+    setSaved(key)
     setHasData(true)
-    setTimeout(() => setSaved(false), 3000)
+    setTimeout(() => setSaved(null), 3000)
   }
 
-  const handleSubmit = async () => {
-    setShowConfirm(false)
-    setSaving(true)
-    await setDoc(doc(db, 'fe_scores', scoreDocId), buildPayload(true), { merge: true })
-    setSaving(false)
-    setFinalized(true)
-    setHasData(true)
+  // ── Per-round handlers ──────────────────────────────────────────────────────
+  const handleSaveRound = (section, round) => {
+    const key = `${section}_${round}`
+    doSave(key, abierto, obstaculos, diario)
+  }
+
+  const handleSubmitRound = async (section, round) => {
+    setShowConfirm(null)
+    const key = `${section}_${round}`
+    let newAb = abierto, newOb = obstaculos
+    if (section === 'abierto') {
+      newAb = { ...abierto, [round]: { ...abierto[round], finalized: true } }
+      setAbierto(newAb)
+    } else {
+      newOb = { ...obstaculos, [round]: { ...obstaculos[round], finalized: true } }
+      setObstaculos(newOb)
+    }
+    await doSave(key, newAb, newOb, diario)
+  }
+
+  // ── Diario handlers ─────────────────────────────────────────────────────────
+  const handleSaveDiario = () => doSave('diario', abierto, obstaculos, diario)
+
+  const handleSubmitDiario = async () => {
+    setShowConfirm(null)
+    const newDiario = { ...diario, finalized: true }
+    setDiario(newDiario)
+    await doSave('diario', abierto, obstaculos, newDiario)
   }
 
   const grandTotal = computeGrandTotal({ abierto, obstaculos, diario })
@@ -616,33 +706,21 @@ function TeamScoring({ team, onClose }) {
   return (
     <div className="min-h-screen p-4 max-w-lg mx-auto">
       {showConfirm && (
-        <ConfirmDialog onConfirm={handleSubmit} onCancel={() => setShowConfirm(false)} />
+        <ConfirmDialog
+          label={showConfirm.label}
+          onConfirm={showConfirm.onConfirm}
+          onCancel={() => setShowConfirm(null)}
+        />
       )}
 
       <div className="flex items-center gap-3 mb-4 mt-4">
         <button onClick={onClose} className="btn-ghost p-2 py-1.5 text-sm">← Equipos</button>
         <div className="flex-1" />
-        {finalized ? (
-          <span className="text-xs font-bold text-green-400 flex items-center gap-1">
-            <CheckCircle2 size={13} /> Evaluación enviada
-          </span>
-        ) : (
-          <div className="text-right">
-            <p className="text-xs text-gray-500">Total parcial</p>
-            <p className="font-mono font-bold text-teal-400">{grandTotal}/{MAX_SCORE}</p>
-          </div>
-        )}
-      </div>
-
-      {finalized && (
-        <div className="card bg-green-500/10 border-green-500/30 mb-4 flex items-center gap-3 py-3">
-          <CheckCircle2 size={20} className="text-green-400 shrink-0" />
-          <div>
-            <p className="font-bold text-green-400 text-sm">Evaluación enviada</p>
-            <p className="text-xs text-gray-500">No se pueden hacer más cambios.</p>
-          </div>
+        <div className="text-right">
+          <p className="text-xs text-gray-500">Total parcial</p>
+          <p className="font-mono font-bold text-teal-400">{grandTotal}/{MAX_SCORE}</p>
         </div>
-      )}
+      </div>
 
       <TeamInfoCard team={team} />
 
@@ -680,10 +758,23 @@ function TeamScoring({ team, onClose }) {
               </div>
             </div>
 
-            <AbiertoCard num={1} data={abierto.r1} disabled={finalized} onChange={r1 => setAbierto(prev => ({ ...prev, r1 }))} />
-            <AbiertoCard num={2} data={abierto.r2} disabled={finalized} onChange={r2 => setAbierto(prev => ({ ...prev, r2 }))} />
+            <AbiertoCard num={1} data={abierto.r1} disabled={!!abierto.r1?.finalized}
+              onChange={r1 => setAbierto(prev => ({ ...prev, r1 }))} />
+            <RoundButtons
+              roundKey="abierto_r1" isFinalized={!!abierto.r1?.finalized}
+              saving={saving} saved={saved}
+              onSave={() => handleSaveRound('abierto', 'r1')}
+              onSubmit={() => setShowConfirm({ label: 'Ronda 1 Abierto', onConfirm: () => handleSubmitRound('abierto', 'r1') })}
+            />
 
-            <SaveSubmitButtons saving={saving} saved={saved} finalized={finalized} onSave={handleSave} onSubmit={() => setShowConfirm(true)} />
+            <AbiertoCard num={2} data={abierto.r2} disabled={!!abierto.r2?.finalized}
+              onChange={r2 => setAbierto(prev => ({ ...prev, r2 }))} />
+            <RoundButtons
+              roundKey="abierto_r2" isFinalized={!!abierto.r2?.finalized}
+              saving={saving} saved={saved}
+              onSave={() => handleSaveRound('abierto', 'r2')}
+              onSubmit={() => setShowConfirm({ label: 'Ronda 2 Abierto', onConfirm: () => handleSubmitRound('abierto', 'r2') })}
+            />
           </motion.div>
         )}
 
@@ -707,10 +798,23 @@ function TeamScoring({ team, onClose }) {
               </div>
             </div>
 
-            <ObstaculosCard num={1} data={obstaculos.r1} disabled={finalized} onChange={r1 => setObstaculos(prev => ({ ...prev, r1 }))} />
-            <ObstaculosCard num={2} data={obstaculos.r2} disabled={finalized} onChange={r2 => setObstaculos(prev => ({ ...prev, r2 }))} />
+            <ObstaculosCard num={1} data={obstaculos.r1} disabled={!!obstaculos.r1?.finalized}
+              onChange={r1 => setObstaculos(prev => ({ ...prev, r1 }))} />
+            <RoundButtons
+              roundKey="obstaculos_r1" isFinalized={!!obstaculos.r1?.finalized}
+              saving={saving} saved={saved}
+              onSave={() => handleSaveRound('obstaculos', 'r1')}
+              onSubmit={() => setShowConfirm({ label: 'Ronda 1 Obstáculos', onConfirm: () => handleSubmitRound('obstaculos', 'r1') })}
+            />
 
-            <SaveSubmitButtons saving={saving} saved={saved} finalized={finalized} onSave={handleSave} onSubmit={() => setShowConfirm(true)} />
+            <ObstaculosCard num={2} data={obstaculos.r2} disabled={!!obstaculos.r2?.finalized}
+              onChange={r2 => setObstaculos(prev => ({ ...prev, r2 }))} />
+            <RoundButtons
+              roundKey="obstaculos_r2" isFinalized={!!obstaculos.r2?.finalized}
+              saving={saving} saved={saved}
+              onSave={() => handleSaveRound('obstaculos', 'r2')}
+              onSubmit={() => setShowConfirm({ label: 'Ronda 2 Obstáculos', onConfirm: () => handleSubmitRound('obstaculos', 'r2') })}
+            />
           </motion.div>
         )}
 
@@ -719,11 +823,16 @@ function TeamScoring({ team, onClose }) {
           <motion.div key="diario" initial={{ opacity: 0, x: -16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 16 }}>
             <DiarioTab
               scores={diario.scores ?? {}}
-              disabled={finalized}
-              onChange={scores => setDiario({ scores })}
+              disabled={!!diario.finalized}
+              onChange={scores => setDiario(prev => ({ ...prev, scores }))}
             />
             <div className="mt-4">
-              <SaveSubmitButtons saving={saving} saved={saved} finalized={finalized} onSave={handleSave} onSubmit={() => setShowConfirm(true)} />
+              <RoundButtons
+                roundKey="diario" isFinalized={!!diario.finalized}
+                saving={saving} saved={saved}
+                onSave={handleSaveDiario}
+                onSubmit={() => setShowConfirm({ label: 'Diario de Ingeniería', onConfirm: handleSubmitDiario })}
+              />
             </div>
           </motion.div>
         )}
@@ -739,56 +848,6 @@ function TeamScoring({ team, onClose }) {
         )}
 
       </AnimatePresence>
-    </div>
-  )
-}
-
-// ─── Confirm dialog ───────────────────────────────────────────────────────────
-function ConfirmDialog({ onConfirm, onCancel }) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-      <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
-        className="card max-w-sm w-full border-yellow-500/40 bg-dark-800">
-        <div className="text-center mb-4">
-          <span className="text-4xl">⚠️</span>
-          <p className="font-bold text-white text-lg mt-2">¿Enviar evaluación?</p>
-          <p className="text-sm text-gray-400 mt-1">
-            Esta acción es <span className="text-yellow-400 font-semibold">permanente</span>.
-            Una vez enviada no podrás hacer cambios.
-          </p>
-        </div>
-        <div className="flex gap-3">
-          <button onClick={onCancel}
-            className="flex-1 py-2.5 rounded-xl font-bold text-sm border border-dark-500 text-gray-400 hover:text-white hover:border-gray-500 transition-all">
-            Cancelar
-          </button>
-          <button onClick={onConfirm}
-            className="flex-1 py-2.5 rounded-xl font-bold text-sm bg-green-500/20 border border-green-500/50 text-green-400 hover:bg-green-500/30 transition-all">
-            Sí, enviar
-          </button>
-        </div>
-      </motion.div>
-    </div>
-  )
-}
-
-function SaveSubmitButtons({ saving, saved, finalized, onSave, onSubmit }) {
-  if (finalized) return null
-  return (
-    <div className="flex gap-2 mt-2">
-      <button onClick={onSave} disabled={saving}
-        className="flex-1 py-3 rounded-xl font-bold border border-dark-500 text-gray-300 text-sm flex items-center justify-center gap-2 disabled:opacity-50 hover:border-gray-400 hover:text-white transition-all">
-        {saving
-          ? <span className="w-4 h-4 border-2 border-gray-500/30 border-t-gray-400 rounded-full animate-spin" />
-          : saved
-          ? <><CheckCircle2 size={14} className="text-green-400" /> Guardado</>
-          : <><Save size={14} /> Guardar</>
-        }
-      </button>
-      <button onClick={onSubmit} disabled={saving}
-        className="flex-1 py-3 rounded-xl font-bold border border-green-500/40 bg-green-500/10 text-green-400 text-sm flex items-center justify-center gap-2 disabled:opacity-50 hover:bg-green-500/20 transition-all">
-        <CheckCircle2 size={14} /> Enviar
-      </button>
     </div>
   )
 }
