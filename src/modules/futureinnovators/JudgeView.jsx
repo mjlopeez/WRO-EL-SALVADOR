@@ -103,7 +103,7 @@ function TeamInfoCard({ team, category }) {
   return (
     <div className="card bg-dark-700 mb-4">
       <div className="flex items-start gap-3">
-        <div className={`w-10 h-10 rounded-xl ${cc.bg} border ${cc.border} flex items-center justify-center font-bold shrink-0 ${cc.text}`}>
+        <div className={`w-12 h-10 rounded-xl ${cc.bg} border ${cc.border} flex items-center justify-center font-bold shrink-0 ${cc.text} text-xs px-1 text-center leading-tight`}>
           {team.number || team.name?.[0]?.toUpperCase()}
         </div>
         <div className="flex-1 min-w-0">
@@ -216,12 +216,17 @@ export default function FIJudgeView() {
   const [selected, setSelected] = useState(null)
   const [activeTab, setActiveTab] = useState('teams')
 
-  // Load ALL fi_teams, filter client-side by category — no composite index needed
+  // Load fi_teams asignados a este juez (filtra por assignedJudgeUids que incluya user.uid)
   useEffect(() => {
+    if (!user?.uid) return
     return onSnapshot(collection(db, 'fi_teams'), snap => {
       const all = snap.docs.map(d => ({ id: d.id, ...d.data() }))
       const mine = all
-        .filter(t => t.category === category)
+        .filter(t =>
+          t.category === category &&
+          Array.isArray(t.assignedJudgeUids) &&
+          t.assignedJudgeUids.includes(user.uid)
+        )
         .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
       setTeams(mine)
       setLoading(false)
@@ -229,7 +234,7 @@ export default function FIJudgeView() {
       console.error('FI JudgeView error:', err)
       setLoading(false)
     })
-  }, [category])
+  }, [category, user?.uid])
 
   const myTeams = teams
 
@@ -353,7 +358,7 @@ export default function FIJudgeView() {
                     onClick={() => setSelected(team)}
                     className="w-full card-hover text-left flex items-center gap-3"
                   >
-                    <div className={`w-10 h-10 rounded-xl ${cc.bg} border ${cc.border} flex items-center justify-center font-bold shrink-0 ${cc.text}`}>
+                    <div className={`w-12 h-10 rounded-xl ${cc.bg} border ${cc.border} flex items-center justify-center font-bold shrink-0 ${cc.text} text-xs px-1 text-center leading-tight`}>
                       {team.number || team.name?.[0]?.toUpperCase()}
                     </div>
                     <div className="flex-1 min-w-0">
