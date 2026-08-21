@@ -31,7 +31,7 @@ const ELEMENTARY_RUBRIC = [
       },
       {
         id: 'usage_idea',
-        label: 'Aplicación de la Idea',
+        label: 'Uso de la Idea Innovación',
         maxPts: 15,
         hint: '¿Cómo podría usarse esta idea en el mundo real? ¿Tiene utilidad práctica?',
       },
