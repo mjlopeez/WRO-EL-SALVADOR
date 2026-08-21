@@ -28,12 +28,31 @@ const SCORE_STYLES  = {
 }
 
 // ─── Mini Chrono ──────────────────────────────────────────────────────────────
-function MiniChrono({ savedTime, onElapsed }) {
+// Si savedTime ya tiene valor (se hizo Stop antes), lo muestra fijo y no arranca el timer.
+function MiniChrono({ savedTime, onElapsed, disabled }) {
   const [status,    setStatus]    = useState('idle')
   const [remaining, setRemaining] = useState(DURATION)
   const intervalRef = useRef(null)
-
   const elapsed = DURATION - remaining
+
+  // Si hay tiempo guardado, renderizamos solo el display fijo
+  if (savedTime != null) {
+    return (
+      <div className="bg-dark-700 rounded-xl px-3 py-2.5 mb-3 flex items-center gap-3">
+        <span className="text-xs text-gray-600 font-semibold uppercase tracking-wider shrink-0">Tiempo</span>
+        <span className="font-mono font-bold text-xl flex-1 text-center text-green-400 tracking-widest">
+          ✓ {fmtTime(savedTime)}
+        </span>
+        {!disabled && (
+          <button onClick={() => onElapsed?.(null)}
+            title="Reiniciar tiempo"
+            className="px-2 py-1 rounded-lg border border-dark-500 text-gray-600 hover:text-red-400 hover:border-red-500/30 transition-colors">
+            <RotateCcw size={10} />
+          </button>
+        )}
+      </div>
+    )
+  }
 
   useEffect(() => {
     if (status === 'running') {
@@ -67,25 +86,13 @@ function MiniChrono({ savedTime, onElapsed }) {
 
   const isDanger  = remaining <= 10 && status === 'running'
   const isWarning = remaining <= 30 && remaining > 10 && status === 'running'
-
-  // If a saved time exists and we're idle, show it as the default display
-  const displayTime = status === 'finished'
-    ? `✓ ${fmtTime(elapsed)}`
-    : status === 'idle' && savedTime
-    ? `⏱ ${fmtTime(savedTime)}`
-    : fmtTime(remaining)
-
-  const displayColor = status === 'finished' ? 'text-green-400'
-    : status === 'idle' && savedTime ? 'text-gray-400'
-    : isDanger ? 'text-red-400'
-    : isWarning ? 'text-yellow-400'
-    : 'text-white'
+  const displayColor = isDanger ? 'text-red-400' : isWarning ? 'text-yellow-400' : 'text-white'
 
   return (
-    <div className="bg-dark-700 rounded-xl px-3 py-2.5 mb-3 flex items-center gap-3">
+    <div className={`bg-dark-700 rounded-xl px-3 py-2.5 mb-3 flex items-center gap-3 ${disabled ? 'opacity-40 pointer-events-none' : ''}`}>
       <span className="text-xs text-gray-600 font-semibold uppercase tracking-wider shrink-0">Tiempo</span>
       <span className={`font-mono font-bold text-xl flex-1 text-center tracking-widest ${displayColor}`}>
-        {displayTime}
+        {fmtTime(remaining)}
       </span>
       <div className="flex gap-1.5 shrink-0">
         {status === 'idle' && (
@@ -126,20 +133,20 @@ function MiniChrono({ savedTime, onElapsed }) {
 }
 
 // ─── Stepper ──────────────────────────────────────────────────────────────────
-function Stepper({ value, min, max, onChange, label, sublabel }) {
+function Stepper({ value, min, max, onChange, label, sublabel, disabled }) {
   return (
-    <div className="flex items-center gap-3 py-0.5">
+    <div className={`flex items-center gap-3 py-0.5 ${disabled ? 'opacity-40 pointer-events-none' : ''}`}>
       <div className="flex-1">
         <p className="text-sm text-gray-300">{label}</p>
         {sublabel && <p className="text-xs text-gray-600">{sublabel}</p>}
       </div>
       <div className="flex items-center gap-2">
-        <button onClick={() => onChange(Math.max(min, value - 1))} disabled={value <= min}
+        <button onClick={() => onChange(Math.max(min, value - 1))} disabled={value <= min || disabled}
           className="w-8 h-8 rounded-lg bg-dark-600 border border-dark-500 text-white font-bold text-lg disabled:opacity-30 flex items-center justify-center hover:border-gray-400 transition-colors">
           −
         </button>
         <span className="font-mono font-bold text-white text-lg w-10 text-center">{value}</span>
-        <button onClick={() => onChange(Math.min(max, value + 1))} disabled={value >= max}
+        <button onClick={() => onChange(Math.min(max, value + 1))} disabled={value >= max || disabled}
           className="w-8 h-8 rounded-lg bg-dark-600 border border-dark-500 text-white font-bold text-lg disabled:opacity-30 flex items-center justify-center hover:border-gray-400 transition-colors">
           +
         </button>
@@ -167,13 +174,13 @@ function Toggle({ value, onChange, label, sublabel, disabled, warn }) {
 }
 
 // ─── Reto Abierto — round card ────────────────────────────────────────────────
-function AbiertoCard({ num, data = {}, onChange }) {
+function AbiertoCard({ num, data = {}, onChange, disabled }) {
   const total   = computeAbiertoTotal(data)
   const rawPts  = computeAbiertoTotal({ ...data, repairAction: false })
   const laps    = data.laps ?? 0
 
   return (
-    <div className="card mb-3">
+    <div className={`card mb-3 ${disabled ? 'opacity-60' : ''}`}>
       <div className="flex items-center gap-2 mb-3">
         <span className="text-xs font-bold uppercase tracking-wider text-gray-500">Ronda {num}</span>
         <div className="flex-1 h-px bg-dark-600" />
@@ -182,19 +189,25 @@ function AbiertoCard({ num, data = {}, onChange }) {
         </span>
       </div>
 
-      <MiniChrono savedTime={data.time ?? null} onElapsed={t => onChange({ ...data, time: t ?? undefined })} />
+      <MiniChrono
+        savedTime={data.time ?? null}
+        disabled={disabled}
+        onElapsed={t => !disabled && onChange({ ...data, time: t ?? undefined })}
+      />
 
-      <div className="space-y-3">
+      <div className={`space-y-3 ${disabled ? 'pointer-events-none' : ''}`}>
         <Stepper
           label="Secciones completadas (sentido correcto)"
           sublabel="1 pto por sección · máx 24"
           value={data.sections ?? 0} min={0} max={24}
+          disabled={disabled}
           onChange={v => onChange({ ...data, sections: v })}
         />
         <Stepper
           label="Vueltas completadas"
           sublabel="1 pto por vuelta · máx 3"
           value={laps} min={0} max={3}
+          disabled={disabled}
           onChange={v => onChange({ ...data, laps: v, stopAtFinish: v < 3 ? false : data.stopAtFinish })}
         />
         <div className="h-px bg-dark-600" />
@@ -202,7 +215,7 @@ function AbiertoCard({ num, data = {}, onChange }) {
           label="Paró en sección de llegada al completar 3 vueltas"
           sublabel="+3 pts · requiere 3 vueltas"
           value={data.stopAtFinish ?? false}
-          disabled={laps < 3}
+          disabled={laps < 3 || disabled}
           onChange={v => onChange({ ...data, stopAtFinish: v })}
         />
         <div className="h-px bg-dark-600" />
@@ -210,6 +223,7 @@ function AbiertoCard({ num, data = {}, onChange }) {
           label="Acción de reparación"
           sublabel="Divide el puntaje de la ronda entre 2"
           value={data.repairAction ?? false}
+          disabled={disabled}
           warn
           onChange={v => onChange({ ...data, repairAction: v })}
         />
@@ -225,7 +239,7 @@ function AbiertoCard({ num, data = {}, onChange }) {
 }
 
 // ─── Reto Obstáculos — round card ─────────────────────────────────────────────
-function ObstaculosCard({ num, data = {}, onChange }) {
+function ObstaculosCard({ num, data = {}, onChange, disabled }) {
   const total  = computeObstaculosTotal(data)
   const rawPts = computeObstaculosTotal({ ...data, repairAction: false })
   const laps   = data.laps ?? 0
@@ -236,7 +250,7 @@ function ObstaculosCard({ num, data = {}, onChange }) {
     : (laps >= 3 ? '+10 pts' : '+4 pts')
 
   return (
-    <div className="card mb-3">
+    <div className={`card mb-3 ${disabled ? 'opacity-60' : ''}`}>
       <div className="flex items-center gap-2 mb-3">
         <span className="text-xs font-bold uppercase tracking-wider text-gray-500">Ronda {num}</span>
         <div className="flex-1 h-px bg-dark-600" />
@@ -245,24 +259,29 @@ function ObstaculosCard({ num, data = {}, onChange }) {
         </span>
       </div>
 
-      <MiniChrono savedTime={data.time ?? null} onElapsed={t => onChange({ ...data, time: t ?? undefined })} />
+      <MiniChrono
+        savedTime={data.time ?? null}
+        disabled={disabled}
+        onElapsed={t => !disabled && onChange({ ...data, time: t ?? undefined })}
+      />
 
-      <div className="space-y-3">
-        {/* Base scoring */}
+      <div className={`space-y-3 ${disabled ? 'pointer-events-none' : ''}`}>
         <Stepper
           label="Secciones completadas"
           sublabel="1 pto por sección · máx 24"
           value={data.sections ?? 0} min={0} max={24}
+          disabled={disabled}
           onChange={v => onChange({ ...data, sections: v })}
         />
         <Stepper
           label="Vueltas completadas"
           sublabel="1 pto por vuelta · máx 3"
           value={laps} min={0} max={3}
+          disabled={disabled}
           onChange={v => onChange({
             ...data, laps: v,
-            stopAtFinish:      v < 3 ? false : data.stopAtFinish,
-            trafficSignsMoved: v < 1 ? undefined : data.trafficSignsMoved,
+            stopAtFinish:       v < 3 ? false : data.stopAtFinish,
+            trafficSignsMoved:  v < 1 ? undefined : data.trafficSignsMoved,
             startedFromParking: v < 1 ? false : data.startedFromParking,
           })}
         />
@@ -270,7 +289,7 @@ function ObstaculosCard({ num, data = {}, onChange }) {
           label="Paró en sección de llegada al completar 3 vueltas"
           sublabel="+3 pts · requiere 3 vueltas"
           value={data.stopAtFinish ?? false}
-          disabled={laps < 3}
+          disabled={laps < 3 || disabled}
           onChange={v => onChange({ ...data, stopAtFinish: v })}
         />
 
@@ -280,7 +299,7 @@ function ObstaculosCard({ num, data = {}, onChange }) {
           label="Se movió alguna señal"
           sublabel={signsLabel}
           value={data.trafficSignsMoved ?? false}
-          disabled={laps < 1}
+          disabled={laps < 1 || disabled}
           onChange={v => onChange({ ...data, trafficSignsMoved: v })}
         />
 
@@ -290,21 +309,20 @@ function ObstaculosCard({ num, data = {}, onChange }) {
           label="Inició desde cajón de estacionamiento"
           sublabel="+7 pts · requiere ≥1 vuelta"
           value={data.startedFromParking ?? false}
-          disabled={laps < 1}
+          disabled={laps < 1 || disabled}
           onChange={v => onChange({ ...data, startedFromParking: v })}
         />
 
-        {/* Parking result */}
         <div>
           <p className="text-sm text-gray-300 mb-2">Resultado del estacionamiento</p>
           <div className="grid grid-cols-3 gap-2">
             {[
-              { val: 'none',    label: 'Sin estac.',  pts: 0  },
-              { val: 'partial', label: 'Parcial',      pts: 7  },
-              { val: 'full',    label: 'Exitoso',      pts: 15 },
+              { val: 'none',    label: 'Sin estac.', pts: 0  },
+              { val: 'partial', label: 'Parcial',     pts: 7  },
+              { val: 'full',    label: 'Exitoso',     pts: 15 },
             ].map(opt => (
               <button key={opt.val}
-                onClick={() => onChange({ ...data, parkingResult: opt.val })}
+                onClick={() => !disabled && onChange({ ...data, parkingResult: opt.val })}
                 className={`py-2.5 rounded-xl text-xs font-bold border transition-all ${
                   (data.parkingResult ?? 'none') === opt.val
                     ? 'bg-teal-500/20 border-teal-500/50 text-teal-400'
@@ -322,6 +340,7 @@ function ObstaculosCard({ num, data = {}, onChange }) {
           label="Acción de reparación"
           sublabel="Divide el puntaje de la ronda entre 2"
           value={data.repairAction ?? false}
+          disabled={disabled}
           warn
           onChange={v => onChange({ ...data, repairAction: v })}
         />
@@ -337,10 +356,10 @@ function ObstaculosCard({ num, data = {}, onChange }) {
 }
 
 // ─── Diario de Ingeniería tab ─────────────────────────────────────────────────
-function DiarioTab({ scores, onChange }) {
+function DiarioTab({ scores, onChange, disabled }) {
   const total = computeDiarioTotal(scores)
   return (
-    <div className="space-y-3">
+    <div className={`space-y-3 ${disabled ? 'pointer-events-none' : ''}`}>
       <div className="card bg-purple-500/10 border-purple-500/30 py-3 flex items-center justify-between">
         <span className="text-sm font-semibold text-gray-300">Diario de Ingeniería</span>
         <span className="font-mono font-extrabold text-2xl text-purple-400">
@@ -351,7 +370,7 @@ function DiarioTab({ scores, onChange }) {
       {RUBRIC.map(c => {
         const val = scores[c.id]
         return (
-          <div key={c.id} className="card">
+          <div key={c.id} className={`card ${disabled ? 'opacity-60' : ''}`}>
             <div className="mb-2.5">
               <p className="font-semibold text-white text-sm">{c.label}</p>
               <p className="text-xs text-gray-500 mt-0.5">{c.description}</p>
@@ -360,7 +379,7 @@ function DiarioTab({ scores, onChange }) {
               {SCORE_OPTIONS.map(opt => {
                 const selected = val === opt
                 return (
-                  <button key={opt} onClick={() => onChange({ ...scores, [c.id]: opt })}
+                  <button key={opt} onClick={() => !disabled && onChange({ ...scores, [c.id]: opt })}
                     className={`py-2.5 rounded-xl text-xs font-bold border transition-all ${
                       selected ? SCORE_STYLES[opt] : 'border-dark-500 text-gray-600 hover:text-gray-400 hover:border-gray-500'
                     }`}>
@@ -421,7 +440,7 @@ function ScoreSummary({ data }) {
           ))}
         </div>
         <div className="mt-2 pt-2 border-t border-dark-600 flex justify-between items-center">
-          <span className="text-xs text-gray-500 flex items-center gap-1"><Star size={11} className="text-yellow-400" /> Mejor ronda</span>
+          <span className="text-xs text-gray-500">⭐ Mejor ronda</span>
           <span className="font-mono font-bold text-teal-400 text-lg">{bestA}</span>
         </div>
       </div>
@@ -438,7 +457,7 @@ function ScoreSummary({ data }) {
           ))}
         </div>
         <div className="mt-2 pt-2 border-t border-dark-600 flex justify-between items-center">
-          <span className="text-xs text-gray-500 flex items-center gap-1"><Star size={11} className="text-yellow-400" /> Mejor ronda</span>
+          <span className="text-xs text-gray-500">⭐ Mejor ronda</span>
           <span className="font-mono font-bold text-teal-400 text-lg">{bestO}</span>
         </div>
       </div>
@@ -547,10 +566,12 @@ function TeamScoring({ team, onClose }) {
   const [obstaculos, setObstaculos] = useState({ r1: {}, r2: {} })
   const [diario,     setDiario]     = useState({ scores: {} })
 
-  const [tab,     setTab]     = useState('abierto')
-  const [saving,  setSaving]  = useState(false)
-  const [saved,   setSaved]   = useState(false)
-  const [hasData, setHasData] = useState(false)
+  const [tab,        setTab]        = useState('abierto')
+  const [saving,     setSaving]     = useState(false)
+  const [saved,      setSaved]      = useState(false)
+  const [hasData,    setHasData]    = useState(false)
+  const [finalized,  setFinalized]  = useState(false)
+  const [showConfirm, setShowConfirm] = useState(false)
 
   // Load saved data
   useEffect(() => {
@@ -560,33 +581,67 @@ function TeamScoring({ team, onClose }) {
       if (d.abierto)    setAbierto(d.abierto)
       if (d.obstaculos) setObstaculos(d.obstaculos)
       if (d.diario)     setDiario(d.diario)
+      if (d.finalized)  setFinalized(true)
       setHasData(true)
     })
   }, [scoreDocId])
 
+  const buildPayload = (fin = false) => {
+    const data = { teamId: team.id, abierto, obstaculos, diario, judgeUid: user.uid, finalized: fin, updatedAt: serverTimestamp() }
+    data.grandTotal = computeGrandTotal(data)
+    return data
+  }
+
   const handleSave = async () => {
     setSaving(true)
-    const data = { abierto, obstaculos, diario, judgeUid: user.uid, updatedAt: serverTimestamp() }
-    data.grandTotal = computeGrandTotal(data)
-    await setDoc(doc(db, 'fe_scores', scoreDocId), data, { merge: true })
+    await setDoc(doc(db, 'fe_scores', scoreDocId), buildPayload(false), { merge: true })
     setSaving(false)
     setSaved(true)
     setHasData(true)
     setTimeout(() => setSaved(false), 3000)
   }
 
+  const handleSubmit = async () => {
+    setShowConfirm(false)
+    setSaving(true)
+    await setDoc(doc(db, 'fe_scores', scoreDocId), buildPayload(true), { merge: true })
+    setSaving(false)
+    setFinalized(true)
+    setHasData(true)
+  }
+
   const grandTotal = computeGrandTotal({ abierto, obstaculos, diario })
 
   return (
     <div className="min-h-screen p-4 max-w-lg mx-auto">
+      {showConfirm && (
+        <ConfirmDialog onConfirm={handleSubmit} onCancel={() => setShowConfirm(false)} />
+      )}
+
       <div className="flex items-center gap-3 mb-4 mt-4">
         <button onClick={onClose} className="btn-ghost p-2 py-1.5 text-sm">← Equipos</button>
         <div className="flex-1" />
-        <div className="text-right">
-          <p className="text-xs text-gray-500">Total parcial</p>
-          <p className="font-mono font-bold text-teal-400">{grandTotal}/{MAX_SCORE}</p>
-        </div>
+        {finalized ? (
+          <span className="text-xs font-bold text-green-400 flex items-center gap-1">
+            <CheckCircle2 size={13} /> Evaluación enviada
+          </span>
+        ) : (
+          <div className="text-right">
+            <p className="text-xs text-gray-500">Total parcial</p>
+            <p className="font-mono font-bold text-teal-400">{grandTotal}/{MAX_SCORE}</p>
+          </div>
+        )}
       </div>
+
+      {finalized && (
+        <div className="card bg-green-500/10 border-green-500/30 mb-4 flex items-center gap-3 py-3">
+          <CheckCircle2 size={20} className="text-green-400 shrink-0" />
+          <div>
+            <p className="font-bold text-green-400 text-sm">Evaluación enviada</p>
+            <p className="text-xs text-gray-500">No se pueden hacer más cambios.</p>
+          </div>
+        </div>
+      )}
 
       <TeamInfoCard team={team} />
 
@@ -609,7 +664,7 @@ function TeamScoring({ team, onClose }) {
           <motion.div key="abierto" initial={{ opacity: 0, x: -16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 16 }}>
             <div className="card bg-green-500/5 border-green-500/20 mb-4">
               <p className="text-xs font-bold uppercase tracking-wider text-green-400 mb-1">Reto Abierto · máx {MAX_ABIERTO} pts/ronda</p>
-              <p className="text-xs text-gray-500">Se cuenta la mejor de las 2 rondas hacia el total.</p>
+              <p className="text-xs text-gray-500">Cuenta la mejor de las 2 rondas (§10.7).</p>
               <div className="flex gap-4 mt-2">
                 {[['R1', computeAbiertoTotal(abierto.r1)], ['R2', computeAbiertoTotal(abierto.r2)]].map(([lbl, score]) => (
                   <div key={lbl} className="text-center">
@@ -618,16 +673,16 @@ function TeamScoring({ team, onClose }) {
                   </div>
                 ))}
                 <div className="text-center">
-                  <p className="text-xs text-gray-600 flex items-center gap-0.5"><Star size={10} className="text-yellow-400" /> Mejor</p>
+                  <p className="text-xs text-gray-600">⭐ Mejor</p>
                   <p className="font-mono font-bold text-teal-400">{Math.max(computeAbiertoTotal(abierto.r1), computeAbiertoTotal(abierto.r2))}</p>
                 </div>
               </div>
             </div>
 
-            <AbiertoCard num={1} data={abierto.r1} onChange={r1 => setAbierto(prev => ({ ...prev, r1 }))} />
-            <AbiertoCard num={2} data={abierto.r2} onChange={r2 => setAbierto(prev => ({ ...prev, r2 }))} />
+            <AbiertoCard num={1} data={abierto.r1} disabled={finalized} onChange={r1 => setAbierto(prev => ({ ...prev, r1 }))} />
+            <AbiertoCard num={2} data={abierto.r2} disabled={finalized} onChange={r2 => setAbierto(prev => ({ ...prev, r2 }))} />
 
-            <SaveButton saving={saving} saved={saved} onSave={handleSave} />
+            <SaveSubmitButtons saving={saving} saved={saved} finalized={finalized} onSave={handleSave} onSubmit={() => setShowConfirm(true)} />
           </motion.div>
         )}
 
@@ -636,7 +691,7 @@ function TeamScoring({ team, onClose }) {
           <motion.div key="obstaculos" initial={{ opacity: 0, x: -16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 16 }}>
             <div className="card bg-red-500/5 border-red-500/20 mb-4">
               <p className="text-xs font-bold uppercase tracking-wider text-red-400 mb-1">Reto Obstáculos · máx {MAX_OBSTACULOS} pts/ronda</p>
-              <p className="text-xs text-gray-500">Se cuenta la mejor de las 2 rondas hacia el total.</p>
+              <p className="text-xs text-gray-500">Cuenta la mejor ronda; empate se rompe por tiempo (§10.7).</p>
               <div className="flex gap-4 mt-2">
                 {[['R1', computeObstaculosTotal(obstaculos.r1)], ['R2', computeObstaculosTotal(obstaculos.r2)]].map(([lbl, score]) => (
                   <div key={lbl} className="text-center">
@@ -645,16 +700,16 @@ function TeamScoring({ team, onClose }) {
                   </div>
                 ))}
                 <div className="text-center">
-                  <p className="text-xs text-gray-600 flex items-center gap-0.5"><Star size={10} className="text-yellow-400" /> Mejor</p>
+                  <p className="text-xs text-gray-600">⭐ Mejor</p>
                   <p className="font-mono font-bold text-teal-400">{Math.max(computeObstaculosTotal(obstaculos.r1), computeObstaculosTotal(obstaculos.r2))}</p>
                 </div>
               </div>
             </div>
 
-            <ObstaculosCard num={1} data={obstaculos.r1} onChange={r1 => setObstaculos(prev => ({ ...prev, r1 }))} />
-            <ObstaculosCard num={2} data={obstaculos.r2} onChange={r2 => setObstaculos(prev => ({ ...prev, r2 }))} />
+            <ObstaculosCard num={1} data={obstaculos.r1} disabled={finalized} onChange={r1 => setObstaculos(prev => ({ ...prev, r1 }))} />
+            <ObstaculosCard num={2} data={obstaculos.r2} disabled={finalized} onChange={r2 => setObstaculos(prev => ({ ...prev, r2 }))} />
 
-            <SaveButton saving={saving} saved={saved} onSave={handleSave} />
+            <SaveSubmitButtons saving={saving} saved={saved} finalized={finalized} onSave={handleSave} onSubmit={() => setShowConfirm(true)} />
           </motion.div>
         )}
 
@@ -663,10 +718,11 @@ function TeamScoring({ team, onClose }) {
           <motion.div key="diario" initial={{ opacity: 0, x: -16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 16 }}>
             <DiarioTab
               scores={diario.scores ?? {}}
+              disabled={finalized}
               onChange={scores => setDiario({ scores })}
             />
             <div className="mt-4">
-              <SaveButton saving={saving} saved={saved} onSave={handleSave} />
+              <SaveSubmitButtons saving={saving} saved={saved} finalized={finalized} onSave={handleSave} onSubmit={() => setShowConfirm(true)} />
             </div>
           </motion.div>
         )}
@@ -686,17 +742,53 @@ function TeamScoring({ team, onClose }) {
   )
 }
 
-function SaveButton({ saving, saved, onSave }) {
+// ─── Confirm dialog ───────────────────────────────────────────────────────────
+function ConfirmDialog({ onConfirm, onCancel }) {
   return (
-    <button onClick={onSave} disabled={saving}
-      className="w-full mt-2 py-3 rounded-xl font-bold border border-teal-500/40 bg-teal-500/10 text-teal-400 text-sm flex items-center justify-center gap-2 disabled:opacity-50 transition-all">
-      {saving
-        ? <span className="w-4 h-4 border-2 border-teal-300/30 border-t-teal-400 rounded-full animate-spin" />
-        : saved
-        ? <><CheckCircle2 size={15} /> Guardado</>
-        : <><Save size={15} /> Guardar evaluación</>
-      }
-    </button>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+      <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+        className="card max-w-sm w-full border-yellow-500/40 bg-dark-800">
+        <div className="text-center mb-4">
+          <span className="text-4xl">⚠️</span>
+          <p className="font-bold text-white text-lg mt-2">¿Enviar evaluación?</p>
+          <p className="text-sm text-gray-400 mt-1">
+            Esta acción es <span className="text-yellow-400 font-semibold">permanente</span>.
+            Una vez enviada no podrás hacer cambios.
+          </p>
+        </div>
+        <div className="flex gap-3">
+          <button onClick={onCancel}
+            className="flex-1 py-2.5 rounded-xl font-bold text-sm border border-dark-500 text-gray-400 hover:text-white hover:border-gray-500 transition-all">
+            Cancelar
+          </button>
+          <button onClick={onConfirm}
+            className="flex-1 py-2.5 rounded-xl font-bold text-sm bg-green-500/20 border border-green-500/50 text-green-400 hover:bg-green-500/30 transition-all">
+            Sí, enviar
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  )
+}
+
+function SaveSubmitButtons({ saving, saved, finalized, onSave, onSubmit }) {
+  if (finalized) return null
+  return (
+    <div className="flex gap-2 mt-2">
+      <button onClick={onSave} disabled={saving}
+        className="flex-1 py-3 rounded-xl font-bold border border-dark-500 text-gray-300 text-sm flex items-center justify-center gap-2 disabled:opacity-50 hover:border-gray-400 hover:text-white transition-all">
+        {saving
+          ? <span className="w-4 h-4 border-2 border-gray-500/30 border-t-gray-400 rounded-full animate-spin" />
+          : saved
+          ? <><CheckCircle2 size={14} className="text-green-400" /> Guardado</>
+          : <><Save size={14} /> Guardar</>
+        }
+      </button>
+      <button onClick={onSubmit} disabled={saving}
+        className="flex-1 py-3 rounded-xl font-bold border border-green-500/40 bg-green-500/10 text-green-400 text-sm flex items-center justify-center gap-2 disabled:opacity-50 hover:bg-green-500/20 transition-all">
+        <CheckCircle2 size={14} /> Enviar
+      </button>
+    </div>
   )
 }
 

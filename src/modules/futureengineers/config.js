@@ -2,7 +2,7 @@
 // Puntuación máxima: 122 pts (mejor Abierto + mejor Obstáculos + Diario)
 
 // ── Rúbrica Diario de Ingeniería (5 criterios × máx 6 pts = 30 pts) ──────────
-export const MAX_SCORE = 122
+export const MAX_SCORE = 122  // mejor Abierto (30) + mejor Obstáculos (62) + Diario (30)
 export const MAX_DIARIO = 30
 export const MAX_ABIERTO = 30
 export const MAX_OBSTACULOS = 62
@@ -125,6 +125,49 @@ export function computeGrandTotal(data = {}) {
 
 // Backward compat — used by AdminView, ResultsView, ScoreSheet
 export const computeTotal = computeDiarioTotal
+
+// ── Criterios de desempate completos §10.5 / §10.8 ───────────────────────────
+// §10.3: equipo descalificado de una ronda → tiempo máximo 180 s
+const MAX_T = 180
+
+function bestAndSecond(pts1, time1, pts2, time2) {
+  const t1 = time1 ?? MAX_T
+  const t2 = time2 ?? MAX_T
+  // Si empatan en puntos, la más rápida es "mejor" (§10.5 Abierto / §10.7 Obstáculos)
+  if (pts1 > pts2 || (pts1 === pts2 && t1 <= t2)) {
+    return { bestPts: pts1, bestTime: t1, secondPts: pts2, secondTime: t2 }
+  }
+  return { bestPts: pts2, bestTime: t2, secondPts: pts1, secondTime: t1 }
+}
+
+/**
+ * Devuelve todos los valores para §10.7 y §10.8.1–10.8.10.
+ * Recalcula siempre desde datos crudos.
+ */
+export function computeTiebreakers(data = {}) {
+  const a1pts = computeAbiertoTotal(data.abierto?.r1)
+  const a2pts = computeAbiertoTotal(data.abierto?.r2)
+  const o1pts = computeObstaculosTotal(data.obstaculos?.r1)
+  const o2pts = computeObstaculosTotal(data.obstaculos?.r2)
+  const d     = computeDiarioTotal(data.diario?.scores)
+
+  const ab = bestAndSecond(a1pts, data.abierto?.r1?.time,    a2pts, data.abierto?.r2?.time)
+  const ob = bestAndSecond(o1pts, data.obstaculos?.r1?.time, o2pts, data.obstaculos?.r2?.time)
+
+  return {
+    grandTotal:  ab.bestPts + ob.bestPts + d,  // §10.7 — orden principal
+    sumTotal:    a1pts + a2pts + o1pts + o2pts + d, // §10.8.1
+    bestOPts:    ob.bestPts,    // §10.8.2
+    bestOTime:   ob.bestTime,   // §10.8.3
+    secondOPts:  ob.secondPts,  // §10.8.4
+    secondOTime: ob.secondTime, // §10.8.5
+    diario:      d,             // §10.8.6
+    bestAPts:    ab.bestPts,    // §10.8.7
+    secondAPts:  ab.secondPts,  // §10.8.8
+    bestATime:   ab.bestTime,   // §10.8.9
+    secondATime: ab.secondTime, // §10.8.10
+  }
+}
 
 export const RESOURCES = [
   {

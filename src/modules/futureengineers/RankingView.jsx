@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { collection, onSnapshot } from 'firebase/firestore'
 import { db } from '../../firebase'
-import { MAX_SCORE } from './config'
+import { MAX_SCORE, computeTiebreakers } from './config'
 
 const MEDALS = ['🥇', '🥈', '🥉']
 
@@ -22,13 +22,32 @@ export default function FERankingView() {
   }
 
   const ranked = teams
-    .filter(t => scoreMap[t.id]?.total !== undefined)
-    .map(t => ({ team: t, total: scoreMap[t.id].total, finalized: scoreMap[t.id].finalized }))
-    .sort((a, b) => b.total - a.total)
+    .filter(t => scoreMap[t.id]?.grandTotal !== undefined)
+    .map(t => ({
+      team: t,
+      finalized: scoreMap[t.id].finalized,
+      tb: computeTiebreakers(scoreMap[t.id]),
+    }))
+    .sort((a, b) => {
+      const ta = a.tb, tb = b.tb
+      // §10.7 — clasificación principal
+      if (ta.grandTotal !== tb.grandTotal) return tb.grandTotal - ta.grandTotal
+      // §10.8 — cadena de desempate (mayor puntos o menor tiempo según criterio)
+      if (ta.sumTotal    !== tb.sumTotal)    return tb.sumTotal    - ta.sumTotal    // §10.8.1
+      if (ta.bestOPts    !== tb.bestOPts)    return tb.bestOPts    - ta.bestOPts    // §10.8.2
+      if (ta.bestOTime   !== tb.bestOTime)   return ta.bestOTime   - tb.bestOTime   // §10.8.3 ↑ rápido
+      if (ta.secondOPts  !== tb.secondOPts)  return tb.secondOPts  - ta.secondOPts  // §10.8.4
+      if (ta.secondOTime !== tb.secondOTime) return ta.secondOTime - tb.secondOTime // §10.8.5 ↑ rápido
+      if (ta.diario      !== tb.diario)      return tb.diario      - ta.diario      // §10.8.6
+      if (ta.bestAPts    !== tb.bestAPts)    return tb.bestAPts    - ta.bestAPts    // §10.8.7
+      if (ta.secondAPts  !== tb.secondAPts)  return tb.secondAPts  - ta.secondAPts  // §10.8.8
+      if (ta.bestATime   !== tb.bestATime)   return ta.bestATime   - tb.bestATime   // §10.8.9 ↑ rápido
+      return ta.secondATime - tb.secondATime                                         // §10.8.10 ↑ rápido
+    })
 
   const unscored = teams.filter(t => !scoreMap[t.id]?.total === undefined || !scoreMap[t.id])
 
-  const best = ranked[0]?.total || MAX_SCORE
+  const best = ranked[0]?.tb?.grandTotal || MAX_SCORE
 
   return (
     <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -16 }} transition={{ duration: 0.25 }}>
@@ -44,7 +63,8 @@ export default function FERankingView() {
         </div>
       ) : (
         <div className="space-y-2">
-          {ranked.map(({ team, total, finalized }, i) => {
+          {ranked.map(({ team, tb, finalized }, i) => {
+            const total = tb.grandTotal
             const pct = Math.round((total / best) * 100)
             const isTop3 = i < 3
             return (
