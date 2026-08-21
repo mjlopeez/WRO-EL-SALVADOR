@@ -14,7 +14,7 @@ export default function Login() {
   // Acepta usuario simple (ej: FE-01) o correo completo
   const resolveEmail = (input) => {
     const trimmed = input.trim()
-    return trimmed.includes('@') ? trimmed : `${trimmed}@gc.sv`
+    return trimmed.includes('@') ? trimmed : `${trimmed}@wro.sv`
   }
 
   const handleSubmit = async (e) => {

@@ -313,7 +313,7 @@ const RS_TEAMS = [
   // ── 3. Crear cuentas de jueces ──────────────────────────────────────────────
   console.log('\n👤 Creando cuentas de jueces...')
   for (const judge of JUDGES) {
-    const email    = `${judge.id}@gc.sv`
+    const email    = `${judge.id}@wro.sv`
     const password = `${judge.id}_WRO26`
 
     const uid = await createAuthUser(email, password)
@@ -361,5 +361,5 @@ const RS_TEAMS = [
   const total = teamSets.reduce((s, [, t]) => s + t.length, 0)
   console.log(`   • ${total} equipos creados`)
   console.log('\n📌 Credenciales de jueces:')
-  for (const j of JUDGES) console.log(`   ${j.id}  →  ${j.id}@gc.sv  /  ${j.id}_WRO26`)
+  for (const j of JUDGES) console.log(`   ${j.id}  →  ${j.id}@wro.sv  /  ${j.id}_WRO26`)
 })().catch(err => { console.error('❌', err.message); process.exit(1) })
