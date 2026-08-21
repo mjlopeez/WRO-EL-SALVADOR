@@ -1,281 +1,509 @@
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Search, X, ChevronRight, LogOut, BookOpen, Users, ExternalLink, CheckCircle2, Play, Pause, RotateCcw, Flag, Save, Timer } from 'lucide-react'
-import { collection, query, where, onSnapshot, orderBy, doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore'
+import {
+  Search, X, ChevronRight, LogOut, BookOpen, Users, ExternalLink,
+  CheckCircle2, Play, Pause, RotateCcw, Flag, Save, Star,
+} from 'lucide-react'
+import { collection, query, orderBy, onSnapshot, doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '../../firebase'
 import { useAuth } from '../../contexts/AuthContext'
-import ScoreSheet from './ScoreSheet'
-import { RESOURCES, RUBRIC, MAX_SCORE, LEVEL_LABELS, computeTotal } from './config'
+import {
+  RESOURCES, RUBRIC, SCORE_OPTIONS,
+  MAX_ABIERTO, MAX_OBSTACULOS, MAX_DIARIO, MAX_SCORE,
+  computeAbiertoTotal, computeObstaculosTotal, computeDiarioTotal, computeGrandTotal,
+} from './config'
 
-// LEVEL_LABELS is in config but not exported — define locally
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+const fmtTime = s =>
+  `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
+const DURATION = 180
+
 const LABELS = { 6: 'Excelente', 4: 'Suficiente', 2: 'Básico', 0: 'Ausente' }
-const LEVEL_COLORS = {
-  6: 'text-green-400',
-  4: 'text-blue-400',
-  2: 'text-yellow-400',
-  0: 'text-red-400',
+const LEVEL_COLORS  = { 6: 'text-green-400', 4: 'text-blue-400',  2: 'text-yellow-400',  0: 'text-red-400' }
+const SCORE_STYLES  = {
+  6: 'bg-green-500/10 border-green-500/40 text-green-400',
+  4: 'bg-blue-500/10  border-blue-500/40  text-blue-400',
+  2: 'bg-yellow-500/10 border-yellow-500/40 text-yellow-400',
+  0: 'bg-red-500/10   border-red-500/40   text-red-400',
 }
 
-function ScoreSummary({ savedData }) {
-  const total = savedData.total ?? 0
-  const pct   = Math.round((total / MAX_SCORE) * 100)
-  const scores = savedData.scores || {}
+// ─── Mini Chrono ──────────────────────────────────────────────────────────────
+function MiniChrono({ savedTime, onElapsed }) {
+  const [status,    setStatus]    = useState('idle')
+  const [remaining, setRemaining] = useState(DURATION)
+  const intervalRef = useRef(null)
+
+  const elapsed = DURATION - remaining
+
+  useEffect(() => {
+    if (status === 'running') {
+      intervalRef.current = setInterval(() => {
+        setRemaining(prev => {
+          if (prev <= 1) {
+            clearInterval(intervalRef.current)
+            setStatus('finished')
+            onElapsed?.(DURATION)
+            return 0
+          }
+          return prev - 1
+        })
+      }, 1000)
+    } else {
+      clearInterval(intervalRef.current)
+    }
+    return () => clearInterval(intervalRef.current)
+  }, [status])
+
+  const stop = () => {
+    clearInterval(intervalRef.current)
+    setStatus('finished')
+    onElapsed?.(elapsed || 1)
+  }
+  const reset = () => {
+    setStatus('idle')
+    setRemaining(DURATION)
+    onElapsed?.(null)
+  }
+
+  const isDanger  = remaining <= 10 && status === 'running'
+  const isWarning = remaining <= 30 && remaining > 10 && status === 'running'
+
+  // If a saved time exists and we're idle, show it as the default display
+  const displayTime = status === 'finished'
+    ? `✓ ${fmtTime(elapsed)}`
+    : status === 'idle' && savedTime
+    ? `⏱ ${fmtTime(savedTime)}`
+    : fmtTime(remaining)
+
+  const displayColor = status === 'finished' ? 'text-green-400'
+    : status === 'idle' && savedTime ? 'text-gray-400'
+    : isDanger ? 'text-red-400'
+    : isWarning ? 'text-yellow-400'
+    : 'text-white'
 
   return (
-    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-3">
-      <div className="card bg-teal-500/10 border-teal-500/30">
-        <div className="flex items-end justify-between mb-2">
-          <div>
-            <p className="text-xs text-gray-400 uppercase tracking-wider font-semibold">Tu puntaje total</p>
-            <p className="font-mono font-extrabold text-4xl text-teal-400">
-              {total}
-              <span className="text-sm text-gray-500 font-normal ml-1">/ {MAX_SCORE}</span>
-            </p>
-          </div>
-          <div className="text-right">
-            <p className="font-bold text-2xl text-teal-400 opacity-70">{pct}%</p>
-            {savedData.finalized && (
-              <span className="text-xs text-green-400 flex items-center gap-1 justify-end">
-                <CheckCircle2 size={12} /> Finalizado
-              </span>
-            )}
-          </div>
-        </div>
-        <div className="h-2.5 bg-dark-600 rounded-full overflow-hidden">
-          <motion.div className="h-full bg-teal-500 rounded-full" initial={{ width: 0 }} animate={{ width: `${pct}%` }} transition={{ duration: 0.5 }} />
-        </div>
+    <div className="bg-dark-700 rounded-xl px-3 py-2.5 mb-3 flex items-center gap-3">
+      <span className="text-xs text-gray-600 font-semibold uppercase tracking-wider shrink-0">Tiempo</span>
+      <span className={`font-mono font-bold text-xl flex-1 text-center tracking-widest ${displayColor}`}>
+        {displayTime}
+      </span>
+      <div className="flex gap-1.5 shrink-0">
+        {status === 'idle' && (
+          <button onClick={() => setStatus('running')}
+            className="px-2.5 py-1 rounded-lg bg-teal-500/20 border border-teal-500/30 text-teal-400 text-xs font-bold flex items-center gap-1">
+            <Play size={10} /> Iniciar
+          </button>
+        )}
+        {status === 'running' && (<>
+          <button onClick={() => setStatus('paused')}
+            className="px-2.5 py-1 rounded-lg bg-yellow-500/10 border border-yellow-500/30 text-yellow-400 text-xs font-bold flex items-center gap-1">
+            <Pause size={10} /> Pausar
+          </button>
+          <button onClick={stop}
+            className="px-2.5 py-1 rounded-lg bg-green-500/10 border border-green-500/30 text-green-400 text-xs font-bold flex items-center gap-1">
+            <Flag size={10} /> Stop
+          </button>
+        </>)}
+        {status === 'paused' && (<>
+          <button onClick={() => setStatus('running')}
+            className="px-2.5 py-1 rounded-lg bg-teal-500/10 border border-teal-500/30 text-teal-400 text-xs font-bold flex items-center gap-1">
+            <Play size={10} /> Continuar
+          </button>
+          <button onClick={stop}
+            className="px-2.5 py-1 rounded-lg bg-green-500/10 border border-green-500/30 text-green-400 text-xs font-bold flex items-center gap-1">
+            <Flag size={10} /> Stop
+          </button>
+        </>)}
+        {status !== 'idle' && (
+          <button onClick={reset}
+            className="px-2 py-1 rounded-lg border border-dark-500 text-gray-600 hover:text-red-400 hover:border-red-500/30 transition-colors">
+            <RotateCcw size={10} />
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─── Stepper ──────────────────────────────────────────────────────────────────
+function Stepper({ value, min, max, onChange, label, sublabel }) {
+  return (
+    <div className="flex items-center gap-3 py-0.5">
+      <div className="flex-1">
+        <p className="text-sm text-gray-300">{label}</p>
+        {sublabel && <p className="text-xs text-gray-600">{sublabel}</p>}
+      </div>
+      <div className="flex items-center gap-2">
+        <button onClick={() => onChange(Math.max(min, value - 1))} disabled={value <= min}
+          className="w-8 h-8 rounded-lg bg-dark-600 border border-dark-500 text-white font-bold text-lg disabled:opacity-30 flex items-center justify-center hover:border-gray-400 transition-colors">
+          −
+        </button>
+        <span className="font-mono font-bold text-white text-lg w-10 text-center">{value}</span>
+        <button onClick={() => onChange(Math.min(max, value + 1))} disabled={value >= max}
+          className="w-8 h-8 rounded-lg bg-dark-600 border border-dark-500 text-white font-bold text-lg disabled:opacity-30 flex items-center justify-center hover:border-gray-400 transition-colors">
+          +
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ─── Toggle ───────────────────────────────────────────────────────────────────
+function Toggle({ value, onChange, label, sublabel, disabled, warn }) {
+  return (
+    <div className={`flex items-center gap-3 py-0.5 ${disabled ? 'opacity-40' : ''}`}>
+      <div className="flex-1">
+        <p className="text-sm text-gray-300">{label}</p>
+        {sublabel && <p className="text-xs text-gray-600">{sublabel}</p>}
+      </div>
+      <button disabled={disabled} onClick={() => !disabled && onChange(!value)}
+        className={`w-11 h-6 rounded-full transition-colors duration-200 shrink-0 ${
+          value ? (warn ? 'bg-orange-500' : 'bg-teal-500') : 'bg-dark-500'
+        }`}>
+        <div className={`w-5 h-5 rounded-full bg-white shadow transition-all duration-200 ${value ? 'translate-x-[22px]' : 'translate-x-[2px]'}`} />
+      </button>
+    </div>
+  )
+}
+
+// ─── Reto Abierto — round card ────────────────────────────────────────────────
+function AbiertoCard({ num, data = {}, onChange }) {
+  const total   = computeAbiertoTotal(data)
+  const rawPts  = computeAbiertoTotal({ ...data, repairAction: false })
+  const laps    = data.laps ?? 0
+
+  return (
+    <div className="card mb-3">
+      <div className="flex items-center gap-2 mb-3">
+        <span className="text-xs font-bold uppercase tracking-wider text-gray-500">Ronda {num}</span>
+        <div className="flex-1 h-px bg-dark-600" />
+        <span className="font-mono font-extrabold text-xl text-teal-400">
+          {total}<span className="text-xs text-gray-600 font-normal ml-0.5">/{MAX_ABIERTO}</span>
+        </span>
       </div>
 
-      {RUBRIC.map(c => {
-        const s = scores[c.id]
-        const color = s !== undefined ? LEVEL_COLORS[s] : 'text-gray-600'
-        return (
-          <div key={c.id} className="card">
-            <div className="flex justify-between items-center">
-              <p className="font-semibold text-white text-sm">{c.label}</p>
-              <div className="text-right">
-                <p className={`font-mono font-bold text-lg ${color}`}>{s ?? '—'}<span className="text-xs text-gray-600 font-normal">/6</span></p>
-                {s !== undefined && <p className={`text-xs ${color}`}>{LABELS[s]}</p>}
-              </div>
-            </div>
-          </div>
-        )
-      })}
-    </motion.div>
-  )
-}
+      <MiniChrono savedTime={data.time ?? null} onElapsed={t => onChange({ ...data, time: t ?? undefined })} />
 
-// ─── Chronometer ────────────────────────────────────────────────────────────
-const CHRONO_ROUNDS = [
-  { id: 'abierto',    label: 'Reto Abierto',     emoji: '🟢' },
-  { id: 'obstaculos', label: 'Reto Obstáculos',   emoji: '🔴' },
-  { id: 'diario',     label: 'Diario Ingeniería', emoji: '📋' },
-]
-const DURATION = 180 // seconds — 3 minutos por reto
+      <div className="space-y-3">
+        <Stepper
+          label="Secciones completadas (sentido correcto)"
+          sublabel="1 pto por sección · máx 24"
+          value={data.sections ?? 0} min={0} max={24}
+          onChange={v => onChange({ ...data, sections: v })}
+        />
+        <Stepper
+          label="Vueltas completadas"
+          sublabel="1 pto por vuelta · máx 3"
+          value={laps} min={0} max={3}
+          onChange={v => onChange({ ...data, laps: v, stopAtFinish: v < 3 ? false : data.stopAtFinish })}
+        />
+        <div className="h-px bg-dark-600" />
+        <Toggle
+          label="Paró en sección de llegada al completar 3 vueltas"
+          sublabel="+3 pts · requiere 3 vueltas"
+          value={data.stopAtFinish ?? false}
+          disabled={laps < 3}
+          onChange={v => onChange({ ...data, stopAtFinish: v })}
+        />
+        <div className="h-px bg-dark-600" />
+        <Toggle
+          label="Acción de reparación"
+          sublabel="Divide el puntaje de la ronda entre 2"
+          value={data.repairAction ?? false}
+          warn
+          onChange={v => onChange({ ...data, repairAction: v })}
+        />
+      </div>
 
-const fmtTime = s => `${String(Math.floor(s / 60)).padStart(2,'0')}:${String(s % 60).padStart(2,'0')}`
-
-function ChronoPanel({ teamId, judgeUid }) {
-  const initRound = () => ({ status: 'idle', remaining: DURATION })
-  const [rounds, setRounds] = useState(CHRONO_ROUNDS.map(initRound))
-  const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState(false)
-  const intervalRefs = useRef([null, null, null])
-  const lastClick = useRef({})
-
-  // Load saved state from Firestore
-  useEffect(() => {
-    getDoc(doc(db, 'fe_chrono', teamId)).then(snap => {
-      if (!snap.exists()) return
-      const data = snap.data().rounds || []
-      setRounds(CHRONO_ROUNDS.map((_, i) => {
-        const s = data[i] || {}
-        return {
-          status: s.status === 'running' ? 'paused' : (s.status || 'idle'),
-          remaining: typeof s.remaining === 'number' ? s.remaining : DURATION,
-        }
-      }))
-    })
-  }, [teamId])
-
-  // Manage intervals for running rounds
-  const statusKey = rounds.map(r => r.status).join(',')
-  useEffect(() => {
-    rounds.forEach((r, i) => {
-      if (r.status === 'running') {
-        if (!intervalRefs.current[i]) {
-          intervalRefs.current[i] = setInterval(() => {
-            setRounds(prev => {
-              const next = [...prev]
-              if (next[i].remaining <= 1) {
-                clearInterval(intervalRefs.current[i])
-                intervalRefs.current[i] = null
-                next[i] = { ...next[i], remaining: 0, status: 'finished' }
-              } else {
-                next[i] = { ...next[i], remaining: next[i].remaining - 1 }
-              }
-              return next
-            })
-          }, 1000)
-        }
-      } else {
-        if (intervalRefs.current[i]) {
-          clearInterval(intervalRefs.current[i])
-          intervalRefs.current[i] = null
-        }
-      }
-    })
-    return () => {
-      intervalRefs.current.forEach((ref, i) => { if (ref) { clearInterval(ref); intervalRefs.current[i] = null } })
-    }
-  }, [statusKey])
-
-  const guard = (key, fn) => {
-    const now = Date.now()
-    if (now - (lastClick.current[key] || 0) < 600) return
-    lastClick.current[key] = now
-    fn()
-  }
-
-  const act = (i, status) => guard(`${i}_${status}`, () =>
-    setRounds(prev => { const n = [...prev]; n[i] = { ...n[i], status }; return n })
-  )
-  const resetRound = (i) => guard(`${i}_reset`, () =>
-    setRounds(prev => { const n = [...prev]; n[i] = { status: 'idle', remaining: DURATION }; return n })
-  )
-
-  const handleSave = async () => {
-    setSaving(true)
-    await setDoc(doc(db, 'fe_chrono', teamId), {
-      teamId, judgeUid,
-      rounds: rounds.map((r, i) => ({
-        id: CHRONO_ROUNDS[i].id,
-        label: CHRONO_ROUNDS[i].label,
-        status: r.status,
-        elapsed: DURATION - r.remaining,
-        remaining: r.remaining,
-      })),
-      updatedAt: serverTimestamp(),
-    }, { merge: true })
-    setSaving(false)
-    setSaved(true)
-    setTimeout(() => setSaved(false), 3000)
-  }
-
-  const doneRounds = rounds.map((r, i) => ({ ...CHRONO_ROUNDS[i], elapsed: DURATION - r.remaining, status: r.status }))
-    .filter(r => r.status === 'finished')
-  const elapsed = doneRounds.map(r => r.elapsed)
-  const bestTime = elapsed.length ? Math.min(...elapsed) : null
-  const avgTime  = elapsed.length ? Math.round(elapsed.reduce((a,b)=>a+b,0)/elapsed.length) : null
-
-  return (
-    <div className="space-y-3">
-      {CHRONO_ROUNDS.map((round, i) => {
-        const r = rounds[i]
-        const rem = r.remaining
-        const isDanger  = rem <= 10 && r.status !== 'finished' && r.status !== 'idle'
-        const isWarning = rem <= 30 && rem > 10 && r.status !== 'finished' && r.status !== 'idle'
-        const elapsedSecs = DURATION - rem
-
-        return (
-          <div key={round.id} className={`card transition-all duration-200 ${
-            r.status === 'running'
-              ? isDanger   ? 'border-red-500/60 bg-red-500/5'
-              : isWarning  ? 'border-yellow-500/60 bg-yellow-500/5'
-              : 'border-teal-500/40 bg-teal-500/5'
-              : r.status === 'finished' ? 'border-green-500/30 bg-green-500/5'
-              : 'border-dark-500'
-          }`}>
-            <div className="flex items-center gap-2 mb-3">
-              <span className="text-lg">{round.emoji}</span>
-              <p className="font-bold text-white flex-1 text-sm">{round.label}</p>
-              {r.status === 'finished' && (
-                <span className="text-xs text-green-400 font-semibold font-mono">✓ {fmtTime(elapsedSecs)}</span>
-              )}
-              {r.status === 'paused' && (
-                <span className="text-xs text-yellow-400 font-semibold">⏸ Pausado</span>
-              )}
-            </div>
-
-            {r.status !== 'finished' && (
-              <div className={`font-mono text-5xl font-extrabold text-center py-3 tracking-widest select-none ${
-                isDanger ? 'text-red-400' : isWarning ? 'text-yellow-400' : 'text-white'
-              }`}>
-                {fmtTime(rem)}
-              </div>
-            )}
-
-            <div className="flex gap-2 mt-2">
-              {r.status === 'idle' && (
-                <button onClick={() => act(i,'running')} className="btn-primary flex-1 flex items-center justify-center gap-2 py-3 text-sm">
-                  <Play size={15} /> Iniciar
-                </button>
-              )}
-              {(r.status === 'running' || r.status === 'paused') && (<>
-                {r.status === 'running' ? (
-                  <button onClick={() => act(i,'paused')} className="flex-1 py-3 rounded-xl font-bold text-sm border border-yellow-500/40 bg-yellow-500/10 text-yellow-400 flex items-center justify-center gap-2">
-                    <Pause size={15} /> Pausar
-                  </button>
-                ) : (
-                  <button onClick={() => act(i,'running')} className="flex-1 py-3 rounded-xl font-bold text-sm border border-teal-500/40 bg-teal-500/10 text-teal-400 flex items-center justify-center gap-2">
-                    <Play size={15} /> Reanudar
-                  </button>
-                )}
-                <button onClick={() => act(i,'finished')} className="flex-1 py-3 rounded-xl font-bold text-sm border border-green-500/40 bg-green-500/10 text-green-400 flex items-center justify-center gap-2">
-                  <Flag size={15} /> Finalizar
-                </button>
-              </>)}
-              {r.status !== 'idle' && (
-                <button onClick={() => resetRound(i)} className="px-4 py-3 rounded-xl text-sm border border-dark-500 text-gray-500 hover:text-red-400 hover:border-red-500/30 transition-all">
-                  <RotateCcw size={14} />
-                </button>
-              )}
-            </div>
-          </div>
-        )
-      })}
-
-      <button onClick={handleSave} disabled={saving}
-        className="w-full py-3 rounded-xl font-bold border border-teal-500/40 bg-teal-500/10 text-teal-400 text-sm flex items-center justify-center gap-2 disabled:opacity-50 transition-all">
-        {saving
-          ? <span className="w-4 h-4 border-2 border-teal-300/30 border-t-teal-400 rounded-full animate-spin" />
-          : saved ? <><CheckCircle2 size={15} /> Guardado</> : <><Save size={15} /> Guardar tiempos</>
-        }
-      </button>
-
-      {doneRounds.length > 0 && (
-        <div className="card bg-dark-700 space-y-1">
-          <p className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-3">Resumen de tiempos</p>
-          {doneRounds.map(r => (
-            <div key={r.id} className="flex justify-between items-center py-1.5 border-b border-dark-600 last:border-0">
-              <span className="text-sm text-gray-300">{r.emoji} {r.label}</span>
-              <span className="font-mono font-bold text-teal-400">{fmtTime(r.elapsed)}</span>
-            </div>
-          ))}
-          {doneRounds.length > 1 && (
-            <div className="flex gap-3 pt-3">
-              <div className="flex-1 text-center py-2 rounded-xl bg-green-500/10 border border-green-500/20">
-                <p className="text-xs text-gray-500">Mejor</p>
-                <p className="font-mono font-bold text-green-400">{fmtTime(bestTime)}</p>
-              </div>
-              <div className="flex-1 text-center py-2 rounded-xl bg-blue-500/10 border border-blue-500/20">
-                <p className="text-xs text-gray-500">Promedio</p>
-                <p className="font-mono font-bold text-blue-400">{fmtTime(avgTime)}</p>
-              </div>
-            </div>
-          )}
+      {data.repairAction && rawPts > 0 && (
+        <div className="mt-3 p-2.5 rounded-xl bg-orange-500/10 border border-orange-500/20 text-xs text-orange-400 text-center">
+          ⚠ Reparación: {rawPts} → {total} pts
         </div>
       )}
     </div>
   )
 }
 
-// ─── Team info card ──────────────────────────────────────────────────────────
+// ─── Reto Obstáculos — round card ─────────────────────────────────────────────
+function ObstaculosCard({ num, data = {}, onChange }) {
+  const total  = computeObstaculosTotal(data)
+  const rawPts = computeObstaculosTotal({ ...data, repairAction: false })
+  const laps   = data.laps ?? 0
+
+  const signsLabel = laps < 1 ? 'Requiere ≥1 vuelta'
+    : data.trafficSignsMoved
+    ? (laps >= 3 ? '+8 pts' : '+2 pts')
+    : (laps >= 3 ? '+10 pts' : '+4 pts')
+
+  return (
+    <div className="card mb-3">
+      <div className="flex items-center gap-2 mb-3">
+        <span className="text-xs font-bold uppercase tracking-wider text-gray-500">Ronda {num}</span>
+        <div className="flex-1 h-px bg-dark-600" />
+        <span className="font-mono font-extrabold text-xl text-teal-400">
+          {total}<span className="text-xs text-gray-600 font-normal ml-0.5">/{MAX_OBSTACULOS}</span>
+        </span>
+      </div>
+
+      <MiniChrono savedTime={data.time ?? null} onElapsed={t => onChange({ ...data, time: t ?? undefined })} />
+
+      <div className="space-y-3">
+        {/* Base scoring */}
+        <Stepper
+          label="Secciones completadas"
+          sublabel="1 pto por sección · máx 24"
+          value={data.sections ?? 0} min={0} max={24}
+          onChange={v => onChange({ ...data, sections: v })}
+        />
+        <Stepper
+          label="Vueltas completadas"
+          sublabel="1 pto por vuelta · máx 3"
+          value={laps} min={0} max={3}
+          onChange={v => onChange({
+            ...data, laps: v,
+            stopAtFinish:      v < 3 ? false : data.stopAtFinish,
+            trafficSignsMoved: v < 1 ? undefined : data.trafficSignsMoved,
+            startedFromParking: v < 1 ? false : data.startedFromParking,
+          })}
+        />
+        <Toggle
+          label="Paró en sección de llegada al completar 3 vueltas"
+          sublabel="+3 pts · requiere 3 vueltas"
+          value={data.stopAtFinish ?? false}
+          disabled={laps < 3}
+          onChange={v => onChange({ ...data, stopAtFinish: v })}
+        />
+
+        <div className="h-px bg-dark-600" />
+        <p className="text-xs font-bold uppercase tracking-wider text-gray-600 pt-1">Señales de tránsito</p>
+        <Toggle
+          label="Se movió alguna señal"
+          sublabel={signsLabel}
+          value={data.trafficSignsMoved ?? false}
+          disabled={laps < 1}
+          onChange={v => onChange({ ...data, trafficSignsMoved: v })}
+        />
+
+        <div className="h-px bg-dark-600" />
+        <p className="text-xs font-bold uppercase tracking-wider text-gray-600 pt-1">Estacionamiento paralelo</p>
+        <Toggle
+          label="Inició desde cajón de estacionamiento"
+          sublabel="+7 pts · requiere ≥1 vuelta"
+          value={data.startedFromParking ?? false}
+          disabled={laps < 1}
+          onChange={v => onChange({ ...data, startedFromParking: v })}
+        />
+
+        {/* Parking result */}
+        <div>
+          <p className="text-sm text-gray-300 mb-2">Resultado del estacionamiento</p>
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { val: 'none',    label: 'Sin estac.',  pts: 0  },
+              { val: 'partial', label: 'Parcial',      pts: 7  },
+              { val: 'full',    label: 'Exitoso',      pts: 15 },
+            ].map(opt => (
+              <button key={opt.val}
+                onClick={() => onChange({ ...data, parkingResult: opt.val })}
+                className={`py-2.5 rounded-xl text-xs font-bold border transition-all ${
+                  (data.parkingResult ?? 'none') === opt.val
+                    ? 'bg-teal-500/20 border-teal-500/50 text-teal-400'
+                    : 'border-dark-500 text-gray-500 hover:text-gray-300 hover:border-gray-600'
+                }`}>
+                {opt.label}
+                <span className="block font-mono text-[10px] opacity-60 mt-0.5">+{opt.pts}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="h-px bg-dark-600" />
+        <Toggle
+          label="Acción de reparación"
+          sublabel="Divide el puntaje de la ronda entre 2"
+          value={data.repairAction ?? false}
+          warn
+          onChange={v => onChange({ ...data, repairAction: v })}
+        />
+      </div>
+
+      {data.repairAction && rawPts > 0 && (
+        <div className="mt-3 p-2.5 rounded-xl bg-orange-500/10 border border-orange-500/20 text-xs text-orange-400 text-center">
+          ⚠ Reparación: {rawPts} → {total} pts
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Diario de Ingeniería tab ─────────────────────────────────────────────────
+function DiarioTab({ scores, onChange }) {
+  const total = computeDiarioTotal(scores)
+  return (
+    <div className="space-y-3">
+      <div className="card bg-purple-500/10 border-purple-500/30 py-3 flex items-center justify-between">
+        <span className="text-sm font-semibold text-gray-300">Diario de Ingeniería</span>
+        <span className="font-mono font-extrabold text-2xl text-purple-400">
+          {total}<span className="text-xs text-gray-500 font-normal ml-1">/{MAX_DIARIO}</span>
+        </span>
+      </div>
+
+      {RUBRIC.map(c => {
+        const val = scores[c.id]
+        return (
+          <div key={c.id} className="card">
+            <div className="mb-2.5">
+              <p className="font-semibold text-white text-sm">{c.label}</p>
+              <p className="text-xs text-gray-500 mt-0.5">{c.description}</p>
+            </div>
+            <div className="grid grid-cols-4 gap-1.5">
+              {SCORE_OPTIONS.map(opt => {
+                const selected = val === opt
+                return (
+                  <button key={opt} onClick={() => onChange({ ...scores, [c.id]: opt })}
+                    className={`py-2.5 rounded-xl text-xs font-bold border transition-all ${
+                      selected ? SCORE_STYLES[opt] : 'border-dark-500 text-gray-600 hover:text-gray-400 hover:border-gray-500'
+                    }`}>
+                    {opt}
+                    <span className="block font-normal opacity-70 mt-0.5">{LABELS[opt]}</span>
+                  </button>
+                )
+              })}
+            </div>
+            {val !== undefined && (
+              <p className={`text-xs mt-2 leading-snug ${LEVEL_COLORS[val]}`}>{c.levels?.[val]}</p>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ─── Score summary ────────────────────────────────────────────────────────────
+function ScoreSummary({ data }) {
+  const a1 = computeAbiertoTotal(data.abierto?.r1)
+  const a2 = computeAbiertoTotal(data.abierto?.r2)
+  const o1 = computeObstaculosTotal(data.obstaculos?.r1)
+  const o2 = computeObstaculosTotal(data.obstaculos?.r2)
+  const d  = computeDiarioTotal(data.diario?.scores ?? {})
+  const bestA = Math.max(a1, a2)
+  const bestO = Math.max(o1, o2)
+  const grand = bestA + bestO + d
+  const pct   = Math.round((grand / MAX_SCORE) * 100)
+
+  return (
+    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-3">
+      <div className="card bg-teal-500/10 border-teal-500/30">
+        <div className="flex items-end justify-between mb-2">
+          <div>
+            <p className="text-xs text-gray-400 uppercase tracking-wider font-semibold">Total</p>
+            <p className="font-mono font-extrabold text-4xl text-teal-400">
+              {grand}<span className="text-sm text-gray-500 font-normal ml-1">/ {MAX_SCORE}</span>
+            </p>
+          </div>
+          <p className="font-bold text-2xl text-teal-400 opacity-70">{pct}%</p>
+        </div>
+        <div className="h-2.5 bg-dark-600 rounded-full overflow-hidden">
+          <motion.div className="h-full bg-teal-500 rounded-full" initial={{ width: 0 }} animate={{ width: `${pct}%` }} transition={{ duration: 0.5 }} />
+        </div>
+      </div>
+
+      {/* Reto Abierto */}
+      <div className="card">
+        <p className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-3">Reto Abierto (máx {MAX_ABIERTO})</p>
+        <div className="space-y-2">
+          {[['Ronda 1', a1], ['Ronda 2', a2]].map(([label, score]) => (
+            <div key={label} className="flex items-center gap-3">
+              <span className="text-sm text-gray-400 flex-1">{label}</span>
+              <span className="font-mono font-bold text-white">{score}</span>
+            </div>
+          ))}
+        </div>
+        <div className="mt-2 pt-2 border-t border-dark-600 flex justify-between items-center">
+          <span className="text-xs text-gray-500 flex items-center gap-1"><Star size={11} className="text-yellow-400" /> Mejor ronda</span>
+          <span className="font-mono font-bold text-teal-400 text-lg">{bestA}</span>
+        </div>
+      </div>
+
+      {/* Reto Obstáculos */}
+      <div className="card">
+        <p className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-3">Reto Obstáculos (máx {MAX_OBSTACULOS})</p>
+        <div className="space-y-2">
+          {[['Ronda 1', o1], ['Ronda 2', o2]].map(([label, score]) => (
+            <div key={label} className="flex items-center gap-3">
+              <span className="text-sm text-gray-400 flex-1">{label}</span>
+              <span className="font-mono font-bold text-white">{score}</span>
+            </div>
+          ))}
+        </div>
+        <div className="mt-2 pt-2 border-t border-dark-600 flex justify-between items-center">
+          <span className="text-xs text-gray-500 flex items-center gap-1"><Star size={11} className="text-yellow-400" /> Mejor ronda</span>
+          <span className="font-mono font-bold text-teal-400 text-lg">{bestO}</span>
+        </div>
+      </div>
+
+      {/* Diario */}
+      <div className="card">
+        <div className="flex justify-between items-center">
+          <p className="text-sm text-gray-300">Diario de Ingeniería</p>
+          <span className="font-mono font-bold text-purple-400 text-lg">{d}<span className="text-xs text-gray-600 font-normal">/{MAX_DIARIO}</span></span>
+        </div>
+      </div>
+    </motion.div>
+  )
+}
+
+// ─── Resources tab ────────────────────────────────────────────────────────────
+function ResourcesTab() {
+  return (
+    <div className="space-y-3">
+      <div className="card bg-teal-500/10 border-teal-500/30">
+        <p className="text-xs font-bold uppercase tracking-wider text-teal-400 mb-3">Puntuación máxima: 122 pts</p>
+        {[
+          ['Reto Abierto (mejor ronda)', `0–${MAX_ABIERTO}`],
+          ['Reto Obstáculos (mejor ronda)', `0–${MAX_OBSTACULOS}`],
+          ['Diario de Ingeniería', `0–${MAX_DIARIO}`],
+        ].map(([label, range]) => (
+          <div key={label} className="flex justify-between items-center py-1.5 border-b border-dark-600 last:border-0">
+            <span className="text-sm text-gray-300">{label}</span>
+            <span className="font-mono font-bold text-sm text-teal-400">{range}</span>
+          </div>
+        ))}
+      </div>
+      <div className="card bg-amber-500/5 border-amber-500/20">
+        <p className="text-xs font-bold uppercase tracking-wider text-amber-400 mb-2">Escala Diario</p>
+        <div className="space-y-1.5">
+          {SCORE_OPTIONS.map(pts => (
+            <div key={pts} className="flex items-center gap-2 text-xs">
+              <span className={`font-mono font-bold w-4 ${LEVEL_COLORS[pts]}`}>{pts}</span>
+              <span className={LEVEL_COLORS[pts]}>{LABELS[pts]}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+      <p className="text-xs text-gray-600 font-semibold uppercase tracking-wider px-1">Documentos oficiales</p>
+      {RESOURCES.map(r => (
+        <motion.a key={r.url} href={r.url} target="_blank" rel="noopener noreferrer"
+          whileTap={{ scale: 0.98 }} className="card-hover flex items-start gap-3 no-underline">
+          <span className="text-2xl shrink-0 mt-0.5">{r.icon}</span>
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold text-white text-sm">{r.label}</p>
+            <p className="text-xs text-gray-500 mt-0.5">{r.description}</p>
+          </div>
+          <ExternalLink size={14} className="text-gray-600 shrink-0 mt-1" />
+        </motion.a>
+      ))}
+    </div>
+  )
+}
+
+// ─── Team info card ───────────────────────────────────────────────────────────
 function TeamInfoCard({ team }) {
   return (
     <div className="card bg-dark-700 mb-4">
       <div className="flex items-start gap-3">
-        <div className="w-10 h-10 rounded-xl bg-teal-500/15 border border-teal-500/30 flex items-center justify-center font-bold text-teal-400 shrink-0">
+        <div className="w-10 h-10 rounded-xl bg-teal-500/15 border border-teal-500/30 flex items-center justify-center font-bold text-teal-400 shrink-0 text-sm">
           {team.number || team.name?.[0]?.toUpperCase()}
         </div>
         <div className="flex-1 min-w-0">
@@ -283,7 +511,7 @@ function TeamInfoCard({ team }) {
           {team.number && <p className="text-xs text-gray-500">Equipo #{team.number}</p>}
           {team.school && <p className="text-xs text-gray-500 truncate">{team.school}</p>}
           <div className="mt-1.5 flex flex-wrap gap-1">
-            {[team.member1, team.member2, team.member3].filter(Boolean).map((m,i) => (
+            {[team.member1, team.member2, team.member3].filter(Boolean).map((m, i) => (
               <span key={i} className="text-xs px-2 py-0.5 rounded-full bg-dark-600 border border-dark-500 text-gray-300">{m}</span>
             ))}
             {team.coach && (
@@ -302,111 +530,182 @@ function TeamInfoCard({ team }) {
   )
 }
 
+// ─── TeamScoring ──────────────────────────────────────────────────────────────
+const SECTION_TABS = [
+  { id: 'abierto',    label: '🟢 Abierto'    },
+  { id: 'obstaculos', label: '🔴 Obstáculos'  },
+  { id: 'diario',     label: '📋 Diario'      },
+  { id: 'resources',  label: 'Recursos'       },
+]
+
 function TeamScoring({ team, onClose }) {
   const { user } = useAuth()
-  const [view, setView]           = useState('chrono')
-  const [savedData, setSavedData] = useState(null)
+  const scoreDocId = `${team.id}_${user.uid}`
 
-  const refreshSaved = () => {
-    getDoc(doc(db, 'fe_scores', `${team.id}_${user.uid}`)).then(snap => {
-      if (snap.exists()) setSavedData(snap.data())
+  // Data state — mirrors fe_scores document structure
+  const [abierto,    setAbierto]    = useState({ r1: {}, r2: {} })
+  const [obstaculos, setObstaculos] = useState({ r1: {}, r2: {} })
+  const [diario,     setDiario]     = useState({ scores: {} })
+
+  const [tab,     setTab]     = useState('abierto')
+  const [saving,  setSaving]  = useState(false)
+  const [saved,   setSaved]   = useState(false)
+  const [hasData, setHasData] = useState(false)
+
+  // Load saved data
+  useEffect(() => {
+    getDoc(doc(db, 'fe_scores', scoreDocId)).then(snap => {
+      if (!snap.exists()) return
+      const d = snap.data()
+      if (d.abierto)    setAbierto(d.abierto)
+      if (d.obstaculos) setObstaculos(d.obstaculos)
+      if (d.diario)     setDiario(d.diario)
+      setHasData(true)
     })
+  }, [scoreDocId])
+
+  const handleSave = async () => {
+    setSaving(true)
+    const data = { abierto, obstaculos, diario, judgeUid: user.uid, updatedAt: serverTimestamp() }
+    data.grandTotal = computeGrandTotal(data)
+    await setDoc(doc(db, 'fe_scores', scoreDocId), data, { merge: true })
+    setSaving(false)
+    setSaved(true)
+    setHasData(true)
+    setTimeout(() => setSaved(false), 3000)
   }
 
-  useEffect(() => { refreshSaved() }, [team.id, user.uid])
-
-  const hasSaved = savedData !== null
-
-  const tabs = [
-    { id: 'chrono',    label: 'Cronómetro', icon: <Timer size={13} /> },
-    { id: 'score',     label: 'Evaluación', icon: hasSaved ? <CheckCircle2 size={12} className="text-green-500" /> : null },
-    ...(hasSaved ? [{ id: 'summary', label: 'Resumen', icon: null }] : []),
-    { id: 'resources', label: 'Recursos',   icon: <BookOpen size={13} /> },
-  ]
+  const grandTotal = computeGrandTotal({ abierto, obstaculos, diario })
 
   return (
     <div className="min-h-screen p-4 max-w-lg mx-auto">
       <div className="flex items-center gap-3 mb-4 mt-4">
         <button onClick={onClose} className="btn-ghost p-2 py-1.5 text-sm">← Equipos</button>
         <div className="flex-1" />
-        <span className="text-xs text-gray-500">Future Engineers</span>
+        <div className="text-right">
+          <p className="text-xs text-gray-500">Total parcial</p>
+          <p className="font-mono font-bold text-teal-400">{grandTotal}/{MAX_SCORE}</p>
+        </div>
       </div>
 
       <TeamInfoCard team={team} />
 
-      <div className="flex gap-1 mb-5 bg-dark-700 p-1 rounded-xl">
-        {tabs.map(t => (
-          <button key={t.id} onClick={() => setView(t.id)}
-            className={`flex-1 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1 transition-all ${
-              view === t.id ? 'bg-dark-600 text-white shadow' : 'text-gray-500 hover:text-gray-300'
+      {/* Section tabs */}
+      <div className="grid grid-cols-4 gap-1 mb-5 bg-dark-700 p-1 rounded-xl">
+        {SECTION_TABS.map(t => (
+          <button key={t.id} onClick={() => setTab(t.id)}
+            className={`py-2 rounded-lg text-[11px] font-bold transition-all ${
+              tab === t.id ? 'bg-dark-600 text-white shadow' : 'text-gray-500 hover:text-gray-300'
             }`}>
-            {t.icon}{t.label}
+            {t.label}
           </button>
         ))}
       </div>
 
       <AnimatePresence mode="wait">
-        {view === 'chrono' && (
-          <motion.div key="chrono" initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }}>
-            <ChronoPanel teamId={team.id} judgeUid={user.uid} />
-          </motion.div>
-        )}
-        {view === 'summary' && savedData && (
-          <motion.div key="summary" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
-            <ScoreSummary savedData={savedData} />
-          </motion.div>
-        )}
-        {view === 'score' && (
-          <motion.div key="score" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
-            <ScoreSheet team={team} elapsedSeconds={0} onResetTimer={() => {}} onClose={onClose} onSaved={() => { refreshSaved(); setView('score') }} />
-          </motion.div>
-        )}
-        {view === 'resources' && (
-          <motion.div key="resources" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-3">
-            <div className="card bg-teal-500/10 border-teal-500/30">
-              <p className="text-xs font-bold uppercase tracking-wider text-teal-400 mb-3">Rúbrica de documentación (máx. 30 pts)</p>
-              {RUBRIC.map(c => (
-                <div key={c.id} className="flex justify-between items-center py-1.5 border-b border-dark-600 last:border-0">
-                  <span className="text-sm text-gray-300">{c.label}</span>
-                  <span className="font-mono font-bold text-sm text-teal-400">0/2/4/6</span>
-                </div>
-              ))}
-            </div>
-            <div className="card bg-amber-500/5 border-amber-500/20">
-              <p className="text-xs font-bold uppercase tracking-wider text-amber-400 mb-2">Escala de puntuación</p>
-              <div className="space-y-1.5">
-                {[['6','Excelente','text-green-400'],['4','Suficiente','text-blue-400'],['2','Básico','text-yellow-400'],['0','Ausente','text-red-400']].map(([pts,label,color]) => (
-                  <div key={pts} className="flex items-center gap-2 text-xs">
-                    <span className={`font-mono font-bold w-4 ${color}`}>{pts}</span>
-                    <span className={color}>{label}</span>
+
+        {/* ── Reto Abierto ── */}
+        {tab === 'abierto' && (
+          <motion.div key="abierto" initial={{ opacity: 0, x: -16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 16 }}>
+            <div className="card bg-green-500/5 border-green-500/20 mb-4">
+              <p className="text-xs font-bold uppercase tracking-wider text-green-400 mb-1">Reto Abierto · máx {MAX_ABIERTO} pts/ronda</p>
+              <p className="text-xs text-gray-500">Se cuenta la mejor de las 2 rondas hacia el total.</p>
+              <div className="flex gap-4 mt-2">
+                {[['R1', computeAbiertoTotal(abierto.r1)], ['R2', computeAbiertoTotal(abierto.r2)]].map(([lbl, score]) => (
+                  <div key={lbl} className="text-center">
+                    <p className="text-xs text-gray-600">{lbl}</p>
+                    <p className="font-mono font-bold text-green-400">{score}</p>
                   </div>
                 ))}
+                <div className="text-center">
+                  <p className="text-xs text-gray-600 flex items-center gap-0.5"><Star size={10} className="text-yellow-400" /> Mejor</p>
+                  <p className="font-mono font-bold text-teal-400">{Math.max(computeAbiertoTotal(abierto.r1), computeAbiertoTotal(abierto.r2))}</p>
+                </div>
               </div>
             </div>
-            <p className="text-xs text-gray-600 font-semibold uppercase tracking-wider px-1">Documentos oficiales</p>
-            {RESOURCES.map(r => (
-              <motion.a key={r.url} href={r.url} target="_blank" rel="noopener noreferrer"
-                whileTap={{ scale: 0.98 }} className="card-hover flex items-start gap-3 no-underline">
-                <span className="text-2xl shrink-0 mt-0.5">{r.icon}</span>
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-white text-sm">{r.label}</p>
-                  <p className="text-xs text-gray-500 mt-0.5">{r.description}</p>
-                </div>
-                <ExternalLink size={14} className="text-gray-600 shrink-0 mt-1" />
-              </motion.a>
-            ))}
+
+            <AbiertoCard num={1} data={abierto.r1} onChange={r1 => setAbierto(prev => ({ ...prev, r1 }))} />
+            <AbiertoCard num={2} data={abierto.r2} onChange={r2 => setAbierto(prev => ({ ...prev, r2 }))} />
+
+            <SaveButton saving={saving} saved={saved} onSave={handleSave} />
           </motion.div>
         )}
+
+        {/* ── Reto Obstáculos ── */}
+        {tab === 'obstaculos' && (
+          <motion.div key="obstaculos" initial={{ opacity: 0, x: -16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 16 }}>
+            <div className="card bg-red-500/5 border-red-500/20 mb-4">
+              <p className="text-xs font-bold uppercase tracking-wider text-red-400 mb-1">Reto Obstáculos · máx {MAX_OBSTACULOS} pts/ronda</p>
+              <p className="text-xs text-gray-500">Se cuenta la mejor de las 2 rondas hacia el total.</p>
+              <div className="flex gap-4 mt-2">
+                {[['R1', computeObstaculosTotal(obstaculos.r1)], ['R2', computeObstaculosTotal(obstaculos.r2)]].map(([lbl, score]) => (
+                  <div key={lbl} className="text-center">
+                    <p className="text-xs text-gray-600">{lbl}</p>
+                    <p className="font-mono font-bold text-red-400">{score}</p>
+                  </div>
+                ))}
+                <div className="text-center">
+                  <p className="text-xs text-gray-600 flex items-center gap-0.5"><Star size={10} className="text-yellow-400" /> Mejor</p>
+                  <p className="font-mono font-bold text-teal-400">{Math.max(computeObstaculosTotal(obstaculos.r1), computeObstaculosTotal(obstaculos.r2))}</p>
+                </div>
+              </div>
+            </div>
+
+            <ObstaculosCard num={1} data={obstaculos.r1} onChange={r1 => setObstaculos(prev => ({ ...prev, r1 }))} />
+            <ObstaculosCard num={2} data={obstaculos.r2} onChange={r2 => setObstaculos(prev => ({ ...prev, r2 }))} />
+
+            <SaveButton saving={saving} saved={saved} onSave={handleSave} />
+          </motion.div>
+        )}
+
+        {/* ── Diario ── */}
+        {tab === 'diario' && (
+          <motion.div key="diario" initial={{ opacity: 0, x: -16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 16 }}>
+            <DiarioTab
+              scores={diario.scores ?? {}}
+              onChange={scores => setDiario({ scores })}
+            />
+            <div className="mt-4">
+              <SaveButton saving={saving} saved={saved} onSave={handleSave} />
+            </div>
+          </motion.div>
+        )}
+
+        {/* ── Recursos ── */}
+        {tab === 'resources' && (
+          <motion.div key="resources" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -16 }}>
+            {hasData && <ScoreSummary data={{ abierto, obstaculos, diario }} />}
+            <div className={hasData ? 'mt-4' : ''}>
+              <ResourcesTab />
+            </div>
+          </motion.div>
+        )}
+
       </AnimatePresence>
     </div>
   )
 }
 
+function SaveButton({ saving, saved, onSave }) {
+  return (
+    <button onClick={onSave} disabled={saving}
+      className="w-full mt-2 py-3 rounded-xl font-bold border border-teal-500/40 bg-teal-500/10 text-teal-400 text-sm flex items-center justify-center gap-2 disabled:opacity-50 transition-all">
+      {saving
+        ? <span className="w-4 h-4 border-2 border-teal-300/30 border-t-teal-400 rounded-full animate-spin" />
+        : saved
+        ? <><CheckCircle2 size={15} /> Guardado</>
+        : <><Save size={15} /> Guardar evaluación</>
+      }
+    </button>
+  )
+}
+
+// ─── Main list view ───────────────────────────────────────────────────────────
 export default function FEJudgeView() {
   const { profile, logout } = useAuth()
-  const [teams, setTeams]   = useState([])
-  const [search, setSearch] = useState('')
-  const [loading, setLoading] = useState(true)
+  const [teams,    setTeams]    = useState([])
+  const [search,   setSearch]   = useState('')
+  const [loading,  setLoading]  = useState(true)
   const [selected, setSelected] = useState(null)
   const [activeTab, setActiveTab] = useState('teams')
 
@@ -418,9 +717,7 @@ export default function FEJudgeView() {
     }, () => setLoading(false))
   }, [])
 
-  // Only teams assigned to this judge
-  const myTeams = teams.filter(t => t.assignedJudgeUid === profile?.uid)
-
+  const myTeams  = teams.filter(t => t.assignedJudgeUid === profile?.uid)
   const filtered = myTeams.filter(t =>
     !search ||
     t.name?.toLowerCase().includes(search.toLowerCase()) ||
@@ -428,9 +725,7 @@ export default function FEJudgeView() {
     t.school?.toLowerCase().includes(search.toLowerCase())
   )
 
-  if (selected) {
-    return <TeamScoring team={selected} onClose={() => setSelected(null)} />
-  }
+  if (selected) return <TeamScoring team={selected} onClose={() => setSelected(null)} />
 
   return (
     <div className="min-h-screen p-4 max-w-lg mx-auto">
@@ -503,16 +798,12 @@ export default function FEJudgeView() {
             ) : (
               <div className="space-y-2">
                 {filtered.map((team, i) => (
-                  <motion.button
-                    key={team.id}
-                    initial={{ opacity: 0, x: -16 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: i * 0.04 }}
-                    whileTap={{ scale: 0.98 }}
+                  <motion.button key={team.id}
+                    initial={{ opacity: 0, x: -16 }} animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: i * 0.04 }} whileTap={{ scale: 0.98 }}
                     onClick={() => setSelected(team)}
-                    className="w-full card-hover text-left flex items-center gap-3"
-                  >
-                    <div className="w-10 h-10 rounded-xl bg-teal-500/10 border border-teal-500/30 flex items-center justify-center font-bold shrink-0 text-teal-400">
+                    className="w-full card-hover text-left flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-teal-500/10 border border-teal-500/30 flex items-center justify-center font-bold shrink-0 text-teal-400 text-sm">
                       {team.number || team.name?.[0]?.toUpperCase()}
                     </div>
                     <div className="flex-1 min-w-0">
@@ -528,41 +819,8 @@ export default function FEJudgeView() {
         )}
 
         {activeTab === 'resources' && (
-          <motion.div key="resources" initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }} className="space-y-3">
-            <div className="card bg-teal-500/10 border-teal-500/30">
-              <p className="text-xs font-bold uppercase tracking-wider text-teal-400 mb-3">Rúbrica de documentación (máx. 30 pts)</p>
-              {RUBRIC.map(c => (
-                <div key={c.id} className="flex justify-between items-center py-1.5 border-b border-dark-600 last:border-0">
-                  <span className="text-sm text-gray-300">{c.label}</span>
-                  <span className="font-mono font-bold text-sm text-teal-400">0/2/4/6</span>
-                </div>
-              ))}
-            </div>
-
-            <div className="card bg-amber-500/5 border-amber-500/20">
-              <p className="text-xs font-bold uppercase tracking-wider text-amber-400 mb-2">Escala de puntuación</p>
-              <div className="space-y-1.5">
-                {[['6', 'Excelente', 'text-green-400'], ['4', 'Suficiente', 'text-blue-400'], ['2', 'Básico', 'text-yellow-400'], ['0', 'Ausente', 'text-red-400']].map(([pts, label, color]) => (
-                  <div key={pts} className="flex items-center gap-2 text-xs">
-                    <span className={`font-mono font-bold w-4 ${color}`}>{pts}</span>
-                    <span className={color}>{label}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <p className="text-xs text-gray-600 font-semibold uppercase tracking-wider px-1">Documentos oficiales</p>
-            {RESOURCES.map(r => (
-              <motion.a key={r.url} href={r.url} target="_blank" rel="noopener noreferrer"
-                whileTap={{ scale: 0.98 }} className="card-hover flex items-start gap-3 no-underline">
-                <span className="text-2xl shrink-0 mt-0.5">{r.icon}</span>
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-white text-sm">{r.label}</p>
-                  <p className="text-xs text-gray-500 mt-0.5">{r.description}</p>
-                </div>
-                <ExternalLink size={14} className="text-gray-600 shrink-0 mt-1" />
-              </motion.a>
-            ))}
+          <motion.div key="resources" initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }}>
+            <ResourcesTab />
           </motion.div>
         )}
       </AnimatePresence>
