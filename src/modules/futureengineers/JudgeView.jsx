@@ -18,6 +18,16 @@ const fmtTime = s =>
   `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
 const DURATION = 180
 
+// Elimina recursivamente cualquier campo con valor undefined (Firestore lo rechaza)
+function stripUndefined(obj) {
+  if (obj === null || typeof obj !== 'object' || Array.isArray(obj)) return obj
+  return Object.fromEntries(
+    Object.entries(obj)
+      .filter(([, v]) => v !== undefined)
+      .map(([k, v]) => [k, stripUndefined(v)])
+  )
+}
+
 const LABELS = { 6: 'Excelente', 4: 'Suficiente', 2: 'Básico', 0: 'Ausente' }
 const LEVEL_COLORS  = { 6: 'text-green-400', 4: 'text-blue-400',  2: 'text-yellow-400',  0: 'text-red-400' }
 const SCORE_STYLES  = {
@@ -651,12 +661,12 @@ function TeamScoring({ team, onClose }) {
       ab.r1?.finalized && ab.r2?.finalized &&
       ob.r1?.finalized && ob.r2?.finalized &&
       di.finalized
-    const data = {
+    const data = stripUndefined({
       teamId: team.id, abierto: ab, obstaculos: ob, diario: di,
       judgeUid: user.uid,
       finalized: !!allFinalized,
       updatedAt: serverTimestamp(),
-    }
+    })
     data.grandTotal = computeGrandTotal(data)
     return data
   }
@@ -664,11 +674,16 @@ function TeamScoring({ team, onClose }) {
   // Generic save (no finalization change) — persists current state
   const doSave = async (key, ab, ob, di) => {
     setSaving(key)
-    await setDoc(doc(db, 'fe_scores', scoreDocId), buildPayload(ab, ob, di), { merge: true })
-    setSaving(null)
-    setSaved(key)
-    setHasData(true)
-    setTimeout(() => setSaved(null), 3000)
+    try {
+      await setDoc(doc(db, 'fe_scores', scoreDocId), buildPayload(ab, ob, di), { merge: true })
+      setSaved(key)
+      setHasData(true)
+      setTimeout(() => setSaved(null), 3000)
+    } catch (err) {
+      console.error('FE save error:', err)
+    } finally {
+      setSaving(null)
+    }
   }
 
   // ── Per-round handlers ──────────────────────────────────────────────────────
