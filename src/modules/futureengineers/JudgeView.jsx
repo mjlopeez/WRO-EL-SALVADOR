@@ -28,14 +28,33 @@ const SCORE_STYLES  = {
 }
 
 // ─── Mini Chrono ──────────────────────────────────────────────────────────────
-// Si savedTime ya tiene valor (se hizo Stop antes), lo muestra fijo y no arranca el timer.
 function MiniChrono({ savedTime, onElapsed, disabled }) {
   const [status,    setStatus]    = useState('idle')
   const [remaining, setRemaining] = useState(DURATION)
   const intervalRef = useRef(null)
-  const elapsed = DURATION - remaining
 
-  // Si hay tiempo guardado, renderizamos solo el display fijo
+  // Todos los hooks ANTES de cualquier return condicional (Rules of Hooks)
+  useEffect(() => {
+    if (savedTime != null) return        // tiempo ya fijo, no correr timer
+    if (status === 'running') {
+      intervalRef.current = setInterval(() => {
+        setRemaining(prev => {
+          if (prev <= 1) {
+            clearInterval(intervalRef.current)
+            setStatus('finished')
+            onElapsed?.(DURATION)
+            return 0
+          }
+          return prev - 1
+        })
+      }, 1000)
+    } else {
+      clearInterval(intervalRef.current)
+    }
+    return () => clearInterval(intervalRef.current)
+  }, [status, savedTime])
+
+  // Si ya hay tiempo guardado → display fijo
   if (savedTime != null) {
     return (
       <div className="bg-dark-700 rounded-xl px-3 py-2.5 mb-3 flex items-center gap-3">
@@ -54,24 +73,10 @@ function MiniChrono({ savedTime, onElapsed, disabled }) {
     )
   }
 
-  useEffect(() => {
-    if (status === 'running') {
-      intervalRef.current = setInterval(() => {
-        setRemaining(prev => {
-          if (prev <= 1) {
-            clearInterval(intervalRef.current)
-            setStatus('finished')
-            onElapsed?.(DURATION)
-            return 0
-          }
-          return prev - 1
-        })
-      }, 1000)
-    } else {
-      clearInterval(intervalRef.current)
-    }
-    return () => clearInterval(intervalRef.current)
-  }, [status])
+  const elapsed   = DURATION - remaining
+  const isDanger  = remaining <= 10 && status === 'running'
+  const isWarning = remaining <= 30 && remaining > 10 && status === 'running'
+  const displayColor = isDanger ? 'text-red-400' : isWarning ? 'text-yellow-400' : 'text-white'
 
   const stop = () => {
     clearInterval(intervalRef.current)
@@ -83,10 +88,6 @@ function MiniChrono({ savedTime, onElapsed, disabled }) {
     setRemaining(DURATION)
     onElapsed?.(null)
   }
-
-  const isDanger  = remaining <= 10 && status === 'running'
-  const isWarning = remaining <= 30 && remaining > 10 && status === 'running'
-  const displayColor = isDanger ? 'text-red-400' : isWarning ? 'text-yellow-400' : 'text-white'
 
   return (
     <div className={`bg-dark-700 rounded-xl px-3 py-2.5 mb-3 flex items-center gap-3 ${disabled ? 'opacity-40 pointer-events-none' : ''}`}>
