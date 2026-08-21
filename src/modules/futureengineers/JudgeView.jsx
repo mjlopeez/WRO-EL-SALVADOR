@@ -71,7 +71,7 @@ const CHRONO_ROUNDS = [
   { id: 'obstaculos', label: 'Reto Obstáculos',   emoji: '🔴' },
   { id: 'diario',     label: 'Diario Ingeniería', emoji: '📋' },
 ]
-const DURATION = 120 // seconds
+const DURATION = 180 // seconds — 3 minutos por reto
 
 const fmtTime = s => `${String(Math.floor(s / 60)).padStart(2,'0')}:${String(s % 60).padStart(2,'0')}`
 
@@ -318,9 +318,10 @@ function TeamScoring({ team, onClose }) {
   const hasSaved = savedData !== null
 
   const tabs = [
-    { id: 'chrono',     label: 'Cronómetro', icon: <Timer size={13} /> },
-    { id: 'score',      label: 'Evaluación', icon: hasSaved ? <CheckCircle2 size={12} className="text-green-500" /> : null },
+    { id: 'chrono',    label: 'Cronómetro', icon: <Timer size={13} /> },
+    { id: 'score',     label: 'Evaluación', icon: hasSaved ? <CheckCircle2 size={12} className="text-green-500" /> : null },
     ...(hasSaved ? [{ id: 'summary', label: 'Resumen', icon: null }] : []),
+    { id: 'resources', label: 'Recursos',   icon: <BookOpen size={13} /> },
   ]
 
   return (
@@ -358,6 +359,42 @@ function TeamScoring({ team, onClose }) {
         {view === 'score' && (
           <motion.div key="score" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
             <ScoreSheet team={team} elapsedSeconds={0} onResetTimer={() => {}} onClose={onClose} onSaved={() => { refreshSaved(); setView('score') }} />
+          </motion.div>
+        )}
+        {view === 'resources' && (
+          <motion.div key="resources" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-3">
+            <div className="card bg-teal-500/10 border-teal-500/30">
+              <p className="text-xs font-bold uppercase tracking-wider text-teal-400 mb-3">Rúbrica de documentación (máx. 30 pts)</p>
+              {RUBRIC.map(c => (
+                <div key={c.id} className="flex justify-between items-center py-1.5 border-b border-dark-600 last:border-0">
+                  <span className="text-sm text-gray-300">{c.label}</span>
+                  <span className="font-mono font-bold text-sm text-teal-400">0/2/4/6</span>
+                </div>
+              ))}
+            </div>
+            <div className="card bg-amber-500/5 border-amber-500/20">
+              <p className="text-xs font-bold uppercase tracking-wider text-amber-400 mb-2">Escala de puntuación</p>
+              <div className="space-y-1.5">
+                {[['6','Excelente','text-green-400'],['4','Suficiente','text-blue-400'],['2','Básico','text-yellow-400'],['0','Ausente','text-red-400']].map(([pts,label,color]) => (
+                  <div key={pts} className="flex items-center gap-2 text-xs">
+                    <span className={`font-mono font-bold w-4 ${color}`}>{pts}</span>
+                    <span className={color}>{label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <p className="text-xs text-gray-600 font-semibold uppercase tracking-wider px-1">Documentos oficiales</p>
+            {RESOURCES.map(r => (
+              <motion.a key={r.url} href={r.url} target="_blank" rel="noopener noreferrer"
+                whileTap={{ scale: 0.98 }} className="card-hover flex items-start gap-3 no-underline">
+                <span className="text-2xl shrink-0 mt-0.5">{r.icon}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-white text-sm">{r.label}</p>
+                  <p className="text-xs text-gray-500 mt-0.5">{r.description}</p>
+                </div>
+                <ExternalLink size={14} className="text-gray-600 shrink-0 mt-1" />
+              </motion.a>
+            ))}
           </motion.div>
         )}
       </AnimatePresence>
