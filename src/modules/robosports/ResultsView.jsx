@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { collection, onSnapshot, doc, setDoc } from 'firebase/firestore'
+import { collection, onSnapshot, doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore'
 import { db } from '../../firebase'
-import { Swords, Upload, CheckCircle, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react'
+import { Swords, Upload, CheckCircle, ChevronDown, ChevronUp, AlertTriangle, Unlock, Trash2 } from 'lucide-react'
 import { ROUNDS, calcGameResult } from './config'
 
 const cc = { bg: 'bg-sky-500/10', border: 'border-sky-500/30', text: 'text-sky-400' }
@@ -35,6 +35,16 @@ function GameCard({ game, i, getTeamName }) {
   const [expanded, setExpanded] = useState(false)
   const nameA = game.teamAName || getTeamName(game.teamAId)
   const nameB = game.teamBName || getTeamName(game.teamBId)
+
+  const handleUnlock = async () => {
+    if (!confirm('¿Reabrir este juego para que el árbitro pueda editar?')) return
+    await updateDoc(doc(db, 'rsp_matches', game.id), { finalized: false })
+  }
+
+  const handleDelete = async () => {
+    if (!confirm(`¿Eliminar el juego "${nameA} vs ${nameB}"? Esta acción es permanente.`)) return
+    await deleteDoc(doc(db, 'rsp_matches', game.id))
+  }
   const gw = game.gameWinner
   const hasForfeit = Array.isArray(game.matchData) && game.matchData.some(m => m.forfeit)
 
@@ -96,6 +106,24 @@ function GameCard({ game, i, getTeamName }) {
           )}
         </>
       )}
+
+      {/* Admin actions */}
+      <div className="flex gap-2 pt-1 border-t border-dark-700 mt-1">
+        {game.finalized && (
+          <button
+            onClick={handleUnlock}
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-yellow-500/10 border border-yellow-500/20 text-yellow-400 hover:bg-yellow-500/20 transition-colors"
+          >
+            <Unlock size={12} /> Reabrir
+          </button>
+        )}
+        <button
+          onClick={handleDelete}
+          className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500/20 transition-colors ml-auto"
+        >
+          <Trash2 size={12} /> Eliminar
+        </button>
+      </div>
     </motion.div>
   )
 }

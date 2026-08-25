@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { collection, onSnapshot, doc, setDoc } from 'firebase/firestore'
+import { collection, onSnapshot, doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore'
 import { db } from '../../firebase'
-import { Upload, CheckCircle } from 'lucide-react'
+import { Upload, CheckCircle, Unlock, Trash2 } from 'lucide-react'
 import { CATEGORIES, CATEGORY_META, ROUNDS, MISSION_MAX, DOC_MAX, DOC_RUBRIC } from './config'
 
 const catColors = {
@@ -31,6 +31,16 @@ export default function RSResultsView() {
     }, () => setLoading(false))
     return () => { u1(); u2() }
   }, [])
+
+  const handleUnlock = async (scoreId) => {
+    if (!confirm('¿Permitir que el juez reenvíe este puntaje?')) return
+    await updateDoc(doc(db, 'rs_scores', scoreId), { finalized: false })
+  }
+
+  const handleDelete = async (scoreId, teamName, round) => {
+    if (!confirm(`¿Eliminar Ronda ${round} de "${teamName}"? Esta acción es permanente.`)) return
+    await deleteDoc(doc(db, 'rs_scores', scoreId))
+  }
 
   const catTeams = teams.filter(t => t.category === catTab)
     .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
@@ -150,18 +160,34 @@ export default function RSResultsView() {
                   {ROUNDS.map(r => {
                     const s = roundScores[r]
                     return (
-                      <div key={r} className={`rounded-xl p-2.5 border text-center ${
+                      <div key={r} className={`rounded-xl p-2.5 border ${
                         s ? `${cc.bg} ${cc.border}` : 'bg-dark-700 border-dark-600'
                       }`}>
-                        <p className="text-xs text-gray-500 mb-1">Ronda {r}</p>
+                        <p className="text-xs text-gray-500 mb-1 text-center">Ronda {r}</p>
                         {s ? (
                           <>
-                            <p className={`font-mono font-bold text-lg ${cc.text}`}>{s.total}</p>
-                            <p className="text-xs text-gray-600">mis: {s.missionScore} · doc: {s.docTotal}</p>
-                            {s.finalized && <span className="text-xs text-green-400 font-semibold">✓</span>}
+                            <p className={`font-mono font-bold text-lg text-center ${cc.text}`}>{s.total}</p>
+                            <p className="text-xs text-gray-600 text-center">mis: {s.missionScore} · doc: {s.docTotal}</p>
+                            {s.finalized && <p className="text-xs text-green-400 font-semibold text-center">✓ Final</p>}
+                            <div className="flex gap-1 mt-2 flex-wrap justify-center">
+                              {s.finalized && (
+                                <button
+                                  onClick={() => handleUnlock(s.id)}
+                                  className="flex items-center gap-1 text-xs text-yellow-400 bg-yellow-500/10 hover:bg-yellow-500/20 border border-yellow-500/20 px-2 py-1 rounded-lg transition-all"
+                                >
+                                  <Unlock size={10} /> Reabrir
+                                </button>
+                              )}
+                              <button
+                                onClick={() => handleDelete(s.id, team.name, r)}
+                                className="flex items-center gap-1 text-xs text-red-400 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 px-2 py-1 rounded-lg transition-all"
+                              >
+                                <Trash2 size={10} /> Eliminar
+                              </button>
+                            </div>
                           </>
                         ) : (
-                          <p className="text-gray-600 text-xs mt-1">—</p>
+                          <p className="text-gray-600 text-xs mt-1 text-center">—</p>
                         )}
                       </div>
                     )
