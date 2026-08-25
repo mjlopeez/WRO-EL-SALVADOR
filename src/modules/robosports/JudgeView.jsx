@@ -7,7 +7,7 @@ import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   LogOut, ChevronRight, Save, CheckCircle, Lock, Swords,
-  Plus, Minus, AlertTriangle, Trophy
+  Plus, Minus, AlertTriangle, Trophy, X as XIcon
 } from 'lucide-react'
 import {
   collection, onSnapshot, addDoc, setDoc, doc, serverTimestamp
@@ -165,6 +165,8 @@ function GameRecorder({ teams, onClose, editGame }) {
   const [finalized, setFinalized] = useState(editGame?.finalized || false)
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState(null)
+  const [savedAsDraft, setSavedAsDraft] = useState(editGame?.id && !editGame?.finalized)
+  const [showDirtyExit, setShowDirtyExit] = useState(false)
 
   const showToast = (type, msg) => { setToast({ type, msg }); setTimeout(() => setToast(null), 3000) }
 
@@ -205,7 +207,8 @@ function GameRecorder({ teams, onClose, editGame }) {
         await addDoc(collection(db, 'rsp_matches'), buildPayload(finalize))
       }
       showToast('success', finalize ? '¡Juego registrado!' : 'Borrador guardado.')
-      if (finalize) { setFinalized(true); setTimeout(onClose, 1200) }
+      if (finalize) { setFinalized(true); setSavedAsDraft(false); setTimeout(onClose, 1200) }
+      else { setSavedAsDraft(true) }
     } catch { showToast('error', 'Error al guardar.') }
     finally { setSaving(false) }
   }
@@ -247,10 +250,41 @@ function GameRecorder({ teams, onClose, editGame }) {
     )
   }
 
+  const handleClose = () => {
+    if (savedAsDraft && !finalized) { setShowDirtyExit(true) } else { onClose() }
+  }
+
   return (
     <div className="min-h-screen p-4 max-w-lg mx-auto pb-24">
+      {/* DirtyExit dialog */}
+      {showDirtyExit && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+          <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+            className="card max-w-sm w-full border-yellow-500/40 bg-dark-800">
+            <div className="text-center mb-4">
+              <AlertTriangle size={36} className="text-yellow-400 mx-auto mb-2" />
+              <p className="font-bold text-white text-lg">Juego sin registrar</p>
+              <p className="text-sm text-gray-400 mt-1">
+                Guardaste un borrador pero <span className="text-yellow-400 font-semibold">aún no lo registraste</span>.
+                ¿Salir de todas formas?
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => setShowDirtyExit(false)}
+                className="flex-1 py-2.5 rounded-xl font-bold text-sm border border-dark-500 text-gray-300 hover:text-white hover:border-gray-400 transition-all">
+                Seguir editando
+              </button>
+              <button onClick={() => { setShowDirtyExit(false); onClose() }}
+                className="flex-1 py-2.5 rounded-xl font-bold text-sm bg-yellow-500/20 border border-yellow-500/50 text-yellow-400 hover:bg-yellow-500/30 transition-all">
+                Salir igual
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
       <div className="flex items-center gap-3 mb-5 mt-4">
-        <button onClick={onClose} className="btn-ghost p-2 py-1.5 text-sm">← Juegos</button>
+        <button onClick={handleClose} className="btn-ghost p-2 py-1.5 text-sm">← Juegos</button>
         <p className="font-bold text-white flex-1 text-center">
           {editGame?.id ? 'Editar juego' : 'Nuevo juego'}
         </p>

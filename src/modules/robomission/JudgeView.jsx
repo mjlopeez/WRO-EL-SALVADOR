@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { LogOut, Trophy, ChevronRight, Bot, ArrowLeft, BookOpen, ExternalLink, Search, X, CheckCircle2, BarChart2, Building2 } from 'lucide-react'
+import { LogOut, Trophy, ChevronRight, Bot, ArrowLeft, BookOpen, ExternalLink, Search, X, CheckCircle2, BarChart2, Building2, AlertTriangle, Lock } from 'lucide-react'
 import { collection, onSnapshot, doc, getDoc } from 'firebase/firestore'
 import { db } from '../../firebase'
 import { useAuth } from '../../contexts/AuthContext'
@@ -243,10 +243,42 @@ export default function JudgeView() {
 
 // ─── Team scoring (rounds + summary) ────────────────────────────────────────
 
+// ─── DirtyExitDialog ────────────────────────────────────────────────────────
+function DirtyExitDialog({ onConfirm, onCancel }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+      <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+        className="card max-w-sm w-full border-yellow-500/40 bg-dark-800">
+        <div className="text-center mb-4">
+          <AlertTriangle size={36} className="text-yellow-400 mx-auto mb-2" />
+          <p className="font-bold text-white text-lg">Puntaje sin enviar</p>
+          <p className="text-sm text-gray-400 mt-1">
+            Guardaste un borrador pero <span className="text-yellow-400 font-semibold">aún no lo enviaste</span>.
+            ¿Salir de todas formas?
+          </p>
+        </div>
+        <div className="flex gap-3">
+          <button onClick={onCancel}
+            className="flex-1 py-2.5 rounded-xl font-bold text-sm border border-dark-500 text-gray-300 hover:text-white hover:border-gray-400 transition-all">
+            Seguir editando
+          </button>
+          <button onClick={onConfirm}
+            className="flex-1 py-2.5 rounded-xl font-bold text-sm bg-yellow-500/20 border border-yellow-500/50 text-yellow-400 hover:bg-yellow-500/30 transition-all">
+            Salir igual
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  )
+}
+
 function TeamScoring({ team, config, category, judgeUid, profile, onBack, onLogout }) {
   const [round, setRound]           = useState(1)
   const [savedTotals, setSavedTotals] = useState({})
+  // savedFlags[r] = { finalized: bool } — tracks finalization per round
+  const [savedFlags, setSavedFlags]   = useState({})
   const [showSummary, setShowSummary] = useState(false)
+  const [showDirtyExit, setShowDirtyExit] = useState(false)
   const members = [team.member1, team.member2, team.member3].filter(Boolean)
 
   const loadTotals = () => {
@@ -254,14 +286,27 @@ function TeamScoring({ team, config, category, judgeUid, profile, onBack, onLogo
       ROUNDS.map(r => getDoc(doc(db, 'rm_scores', `${team.id}_r${r}`)))
     ).then(snaps => {
       const totals = {}
+      const flags  = {}
       snaps.forEach((snap, i) => {
-        if (snap.exists()) totals[i + 1] = snap.data().total ?? null
+        if (snap.exists()) {
+          const d = snap.data()
+          totals[i + 1] = d.total ?? null
+          flags[i + 1]  = { finalized: d.finalized === true }
+        }
       })
       setSavedTotals(totals)
+      setSavedFlags(flags)
     })
   }
 
   useEffect(() => { loadTotals() }, [team.id])
+
+  // A round is "dirty" if it was saved as draft but not finalized
+  const isDirty = ROUNDS.some(r => savedTotals[r] !== undefined && !savedFlags[r]?.finalized)
+
+  const handleBack = () => {
+    if (isDirty) { setShowDirtyExit(true) } else { onBack() }
+  }
 
   const allSaved  = ROUNDS.every(r => savedTotals[r] !== undefined)
   const CAT_TEXT  = { elementary: 'text-dark-900', junior: 'text-white', senior: 'text-white' }
@@ -270,7 +315,7 @@ function TeamScoring({ team, config, category, judgeUid, profile, onBack, onLogo
     <div className="min-h-screen p-4 max-w-2xl mx-auto">
       {/* Header */}
       <div className="flex items-center gap-3 mb-6">
-        <button onClick={onBack} className="btn-ghost p-2">
+        <button onClick={handleBack} className="btn-ghost p-2">
           <ArrowLeft size={18} />
         </button>
         <div className="flex-1 min-w-0">
@@ -313,20 +358,35 @@ function TeamScoring({ team, config, category, judgeUid, profile, onBack, onLogo
         </div>
       </motion.div>
 
+      {/* DirtyExit dialog */}
+      {showDirtyExit && (
+        <DirtyExitDialog
+          onConfirm={() => { setShowDirtyExit(false); onBack() }}
+          onCancel={() => setShowDirtyExit(false)}
+        />
+      )}
+
       {/* Round tabs + summary toggle */}
       <div className="flex gap-2 mb-5">
         {ROUNDS.map(r => {
-          const hasSaved = savedTotals[r] !== undefined
-          const isActive = !showSummary && round === r
+          const hasSaved  = savedTotals[r] !== undefined
+          const isActive  = !showSummary && round === r
+          const locked    = r > 1 && !savedFlags[r - 1]?.finalized
           return (
-            <button key={r} onClick={() => { setRound(r); setShowSummary(false) }}
+            <button key={r}
+              onClick={() => { if (!locked) { setRound(r); setShowSummary(false) } }}
+              disabled={locked}
               className={`flex-1 py-2.5 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-1.5 ${
-                isActive
-                  ? `bg-${config.color} ${CAT_TEXT[category] || 'text-white'} shadow-lg`
-                  : 'bg-dark-700 text-gray-400 hover:text-white border border-dark-500'
+                locked
+                  ? 'bg-dark-800 text-gray-600 border border-dark-700 cursor-not-allowed'
+                  : isActive
+                    ? `bg-${config.color} ${CAT_TEXT[category] || 'text-white'} shadow-lg`
+                    : 'bg-dark-700 text-gray-400 hover:text-white border border-dark-500'
               }`}>
-              {hasSaved && <CheckCircle2 size={11} className={isActive ? 'opacity-70' : 'text-green-500'} />}
-              Ronda {r}
+              {locked
+                ? <><Lock size={11} /> Ronda {r}</>
+                : <>{hasSaved && <CheckCircle2 size={11} className={isActive ? 'opacity-70' : 'text-green-500'} />} Ronda {r}</>
+              }
             </button>
           )
         })}

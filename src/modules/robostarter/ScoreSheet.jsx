@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Save, CheckCircle, Lock, Info } from 'lucide-react'
+import { Save, CheckCircle, Lock, Info, AlertTriangle } from 'lucide-react'
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '../../firebase'
 import { useAuth } from '../../contexts/AuthContext'
@@ -201,6 +201,7 @@ export default function RSScoreSheet({ team, category, round, onClose, onSaved }
   const [finalized, setFinalized] = useState(false)
   const [savedOnce, setSavedOnce] = useState(false)
   const [toast, setToast]       = useState(null)
+  const [showZeroWarn, setShowZeroWarn] = useState(false)
 
   const scoreId = `${team.id}_r${round}`
 
@@ -244,7 +245,13 @@ export default function RSScoreSheet({ team, category, round, onClose, onSaved }
     } finally { setSaving(false) }
   }
 
-  const handleFinalize = async () => {
+  const handleFinalize = () => {
+    if (total === 0) { setShowZeroWarn(true); return }
+    doFinalize()
+  }
+
+  const doFinalize = async () => {
+    setShowZeroWarn(false)
     if (!confirm('¿Finalizar esta ronda? No podrás editar después.')) return
     setSaving(true)
     try {
@@ -263,6 +270,33 @@ export default function RSScoreSheet({ team, category, round, onClose, onSaved }
 
   return (
     <div className="space-y-4">
+      {/* Zero-score warning dialog */}
+      {showZeroWarn && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+          <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+            className="card max-w-sm w-full border-yellow-500/40 bg-dark-800">
+            <div className="text-center mb-4">
+              <AlertTriangle size={36} className="text-yellow-400 mx-auto mb-2" />
+              <p className="font-bold text-white text-lg">Puntaje en cero</p>
+              <p className="text-sm text-gray-400 mt-1">
+                El puntaje de esta ronda es <span className="text-yellow-400 font-semibold">0</span>.
+                ¿Deseas corregirlo o aceptar y enviar de todas formas?
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => setShowZeroWarn(false)}
+                className="flex-1 py-2.5 rounded-xl font-bold text-sm border border-dark-500 text-gray-300 hover:text-white hover:border-gray-400 transition-all">
+                Corregir
+              </button>
+              <button onClick={doFinalize}
+                className="flex-1 py-2.5 rounded-xl font-bold text-sm bg-yellow-500/20 border border-yellow-500/50 text-yellow-400 hover:bg-yellow-500/30 transition-all">
+                Aceptar y enviar
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
       {finalized && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
           className="flex items-center gap-3 px-4 py-3 rounded-xl bg-green-500/10 border border-green-500/30">

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Search, X, Users, LogOut, ChevronRight, ExternalLink,
-  BookOpen, CheckCircle2, BarChart2, UserCheck, AlertCircle
+  BookOpen, CheckCircle2, BarChart2, UserCheck, AlertCircle, AlertTriangle
 } from 'lucide-react'
 import {
   collection, onSnapshot, doc, getDoc
@@ -135,6 +135,7 @@ function TeamScoring({ team, category, pair, onClose }) {
   const cc = CC[category] || CC.elementary
   const [view, setView]       = useState('score')
   const [savedData, setSavedData] = useState(null)
+  const [showDirtyExit, setShowDirtyExit] = useState(false)
 
   const refreshSaved = () => {
     getDoc(doc(db, 'fi_scores', `${team.id}_${user.uid}`)).then(snap => {
@@ -144,12 +145,44 @@ function TeamScoring({ team, category, pair, onClose }) {
 
   useEffect(() => { refreshSaved() }, [team.id, user.uid])
 
-  const hasSaved = savedData !== null
+  const hasSaved  = savedData !== null
+  const isDirty   = hasSaved && !savedData.finalized
+
+  const handleClose = () => {
+    if (isDirty) { setShowDirtyExit(true) } else { onClose() }
+  }
 
   return (
     <div className="min-h-screen p-4 max-w-lg mx-auto">
+      {/* DirtyExit dialog */}
+      {showDirtyExit && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+          <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+            className="card max-w-sm w-full border-yellow-500/40 bg-dark-800">
+            <div className="text-center mb-4">
+              <AlertTriangle size={36} className="text-yellow-400 mx-auto mb-2" />
+              <p className="font-bold text-white text-lg">Puntaje sin enviar</p>
+              <p className="text-sm text-gray-400 mt-1">
+                Guardaste un borrador pero <span className="text-yellow-400 font-semibold">aún no lo enviaste</span>.
+                ¿Salir de todas formas?
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => setShowDirtyExit(false)}
+                className="flex-1 py-2.5 rounded-xl font-bold text-sm border border-dark-500 text-gray-300 hover:text-white hover:border-gray-400 transition-all">
+                Seguir editando
+              </button>
+              <button onClick={() => { setShowDirtyExit(false); onClose() }}
+                className="flex-1 py-2.5 rounded-xl font-bold text-sm bg-yellow-500/20 border border-yellow-500/50 text-yellow-400 hover:bg-yellow-500/30 transition-all">
+                Salir igual
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
       <div className="flex items-center gap-3 mb-4 mt-4">
-        <button onClick={onClose} className="btn-ghost p-2 py-1.5 text-sm">← Equipos</button>
+        <button onClick={handleClose} className="btn-ghost p-2 py-1.5 text-sm">← Equipos</button>
         <div className="flex-1" />
         <span className="text-xs text-gray-500">Future Innovators</span>
       </div>

@@ -1,10 +1,13 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Save, CheckCircle, Lock, Info, ChevronDown, ChevronUp, MessageSquare } from 'lucide-react'
+import { Save, CheckCircle, Lock, Info, ChevronDown, ChevronUp, MessageSquare, AlertTriangle } from 'lucide-react'
 import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '../../firebase'
 import { useAuth } from '../../contexts/AuthContext'
 import { RUBRICS, computeTotal, MAX_SCORE } from './config'
+
+// Equipos que obtienen 0 pts en Research & Report por no haberlo entregado
+const RESEARCH_DISABLED_TEAMS = ['cuscabot', 'los inges', 'nova tech future innovators']
 
 const CC = {
   elementary: { text: 'text-elementary', bg: 'bg-elementary/10', border: 'border-elementary/30', bar: 'bg-elementary' },
@@ -104,6 +107,7 @@ export default function ScoreSheet({ team, category, pairId, pairName, onClose, 
   const [savedOnce, setSavedOnce] = useState(false)
   const [toast, setToast]         = useState(null)
   const [collapsed, setCollapsed] = useState({})
+  const [showZeroWarn, setShowZeroWarn] = useState(false)
 
   const docId = `${team.id}_${user.uid}`
   const colRef = 'fi_scores'
@@ -121,7 +125,9 @@ export default function ScoreSheet({ team, category, pairId, pairName, onClose, 
     }).catch(() => setLoading(false))
   }, [docId])
 
-  const total = computeTotal(category, scores)
+  const researchDisabled = RESEARCH_DISABLED_TEAMS.some(n => team?.name?.toLowerCase().includes(n))
+  const effectiveScores  = researchDisabled ? { ...scores, research_report: 0 } : scores
+  const total = computeTotal(category, effectiveScores)
   const pct   = Math.round((total / MAX_SCORE) * 100)
 
   const setScore = (id, val) => {
@@ -142,7 +148,7 @@ export default function ScoreSheet({ team, category, pairId, pairName, onClose, 
     judgeName: profile?.name || user.email,
     pairId:    pairId  || null,
     pairName:  pairName || null,
-    scores,
+    scores:    effectiveScores,
     comments,
     total,
     finalized: fin,
@@ -163,7 +169,13 @@ export default function ScoreSheet({ team, category, pairId, pairName, onClose, 
     }
   }
 
-  const handleFinalize = async () => {
+  const handleFinalize = () => {
+    if (total === 0) { setShowZeroWarn(true); return }
+    doFinalize()
+  }
+
+  const doFinalize = async () => {
+    setShowZeroWarn(false)
     if (!confirm('¿Finalizar evaluación? No podrás editar el puntaje después.')) return
     setSaving(true)
     try {
@@ -189,6 +201,33 @@ export default function ScoreSheet({ team, category, pairId, pairName, onClose, 
 
   return (
     <div className="space-y-4">
+      {/* Zero-score warning dialog */}
+      {showZeroWarn && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+          <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+            className="card max-w-sm w-full border-yellow-500/40 bg-dark-800">
+            <div className="text-center mb-4">
+              <AlertTriangle size={36} className="text-yellow-400 mx-auto mb-2" />
+              <p className="font-bold text-white text-lg">Puntaje en cero</p>
+              <p className="text-sm text-gray-400 mt-1">
+                El puntaje total es <span className="text-yellow-400 font-semibold">0</span>.
+                ¿Deseas corregirlo o aceptar y enviar de todas formas?
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => setShowZeroWarn(false)}
+                className="flex-1 py-2.5 rounded-xl font-bold text-sm border border-dark-500 text-gray-300 hover:text-white hover:border-gray-400 transition-all">
+                Corregir
+              </button>
+              <button onClick={doFinalize}
+                className="flex-1 py-2.5 rounded-xl font-bold text-sm bg-yellow-500/20 border border-yellow-500/50 text-yellow-400 hover:bg-yellow-500/30 transition-all">
+                Aceptar y enviar
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
       {/* Finalized banner */}
       {finalized && (
         <motion.div
@@ -256,16 +295,34 @@ export default function ScoreSheet({ team, category, pairId, pairName, onClose, 
                   className="overflow-hidden"
                 >
                   <div className="mt-2">
-                    {section.criteria.map(criterion => (
-                      <CriterionRow
-                        key={criterion.id}
-                        criterion={criterion}
-                        score={scores[criterion.id] ?? 0}
-                        onChange={val => setScore(criterion.id, val)}
-                        disabled={finalized}
-                        colorText={cc.text}
-                      />
-                    ))}
+                    {section.criteria.map(criterion => {
+                      const isResearchLocked = researchDisabled && criterion.id === 'research_report'
+                      if (isResearchLocked) {
+                        return (
+                          <div key={criterion.id} className="py-3 border-b border-dark-700 last:border-0">
+                            <div className="flex items-start gap-2.5 p-3 rounded-xl bg-red-500/10 border border-red-500/20">
+                              <AlertTriangle size={14} className="text-red-400 shrink-0 mt-0.5" />
+                              <div>
+                                <p className="text-sm font-semibold text-white leading-tight">{criterion.label}</p>
+                                <p className="text-xs text-red-400 mt-1 font-medium">
+                                  Obtienen 0/{criterion.maxPts} puntos en Research &amp; Report.
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      }
+                      return (
+                        <CriterionRow
+                          key={criterion.id}
+                          criterion={criterion}
+                          score={scores[criterion.id] ?? 0}
+                          onChange={val => setScore(criterion.id, val)}
+                          disabled={finalized}
+                          colorText={cc.text}
+                        />
+                      )
+                    })}
                   </div>
                 </motion.div>
               )}
