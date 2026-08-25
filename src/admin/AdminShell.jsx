@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   LogOut, Users, Trophy, Building2, BarChart2, Medal,
   LayoutDashboard, ChevronDown, Flag, Menu, X, Monitor,
-  Copy, Check, RefreshCw, Eye
+  Copy, Check, RefreshCw, Eye, History
 } from 'lucide-react'
 import { doc, setDoc, getDoc, updateDoc } from 'firebase/firestore'
 import { db } from '../firebase'
@@ -11,6 +11,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { MODULES, MODULE_LIST } from '../modules/index'
 import JudgeManagement      from './shared/JudgeManagement'
 import InstitutionManagement from './shared/InstitutionManagement'
+import ChangesView           from './shared/ChangesView'
 
 // Lazy-load module admin views
 const RoboMissionAdmin       = lazy(() => import('../modules/robomission/AdminView'))
@@ -35,6 +36,7 @@ const SHARED_NAV = [
   { id: 'jueces',        label: 'Jueces',        icon: Users },
   { id: 'instituciones', label: 'Instituciones', icon: Building2 },
   { id: 'pantalla',      label: 'Pantalla',      icon: Monitor },
+  { id: 'cambios',       label: 'Historial',     icon: History },
 ]
 
 export default function AdminShell() {
@@ -228,7 +230,8 @@ export default function AdminShell() {
             {tab === 'jueces'        && <JudgeManagement key="jueces" activeModule={activeModule} />}
             {tab === 'instituciones' && <InstitutionManagement key="instituciones" />}
             {tab === 'pantalla'      && <PantallaTab key="pantalla" />}
-            {!['jueces','instituciones','pantalla'].includes(tab) && (
+            {tab === 'cambios'       && <ChangesView key="cambios" />}
+            {!['jueces','instituciones','pantalla','cambios'].includes(tab) && (
               <Suspense fallback={<LoadingView />} key={`${activeModule}-${tab}`}>
                 {moduleAdminView(activeModule, tab, setTab)}
               </Suspense>
