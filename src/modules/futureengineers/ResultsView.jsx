@@ -239,19 +239,21 @@ export default function FEResultsView() {
     setPublishing(true)
     try {
       const ranking = sortedTeams
-        .filter(t => scoreMap[t.id]?.total !== undefined)
+        .filter(t => scoreMap[t.id]?.grandTotal !== undefined)
         .map(t => ({
-          id: t.id, name: t.name, school: t.school || '', number: t.number || '',
-          total: scoreMap[t.id].grandTotal, finalized: scoreMap[t.id].finalized,
+          teamId: t.id, teamName: t.name, teamNumber: t.number || '', school: t.school || '',
+          total: scoreMap[t.id].grandTotal, maxTotal: MAX_SCORE, finalized: scoreMap[t.id].finalized,
         }))
       await setDoc(doc(db, 'published_results', 'fe'), {
-        ranking: { senior: ranking },
+        ranking,
         publishedAt: serverTimestamp(),
         module: 'fe',
         moduleLabel: 'Future Engineers',
       })
       setPublished(true)
       setTimeout(() => setPublished(false), 4000)
+    } catch (err) {
+      console.error('FE publish error:', err)
     } finally { setPublishing(false) }
   }
 

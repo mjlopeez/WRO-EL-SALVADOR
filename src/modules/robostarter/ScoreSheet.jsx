@@ -1,18 +1,175 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Save, CheckCircle, Lock, Info, ChevronDown, ChevronUp, BookOpen, Star } from 'lucide-react'
+import { Save, CheckCircle, Lock, Info } from 'lucide-react'
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '../../firebase'
 import { useAuth } from '../../contexts/AuthContext'
-import { DOC_RUBRIC, DOC_MAX, MISSION_MAX } from './config'
+import {
+  MISSION_MAX,
+  JUNIOR_MISSION_MAX, JUNIOR_MISSION_DEFAULTS, calcJuniorMissionScore,
+} from './config'
 
 const CC = {
   elementary: { text: 'text-green-400', bg: 'bg-green-500/10', border: 'border-green-500/30', bar: 'bg-green-500' },
   junior:     { text: 'text-lime-400',  bg: 'bg-lime-500/10',  border: 'border-lime-500/30',  bar: 'bg-lime-500'  },
 }
 
-// Puntuación numérica de misión por ronda
-function MissionRoundTab({ round, missionScore, onChange, disabled, cc }) {
+// ── Selector de opciones para una misión ──────────────────────────────────────
+function ChoiceField({ label, hint, options, value, onChange, disabled, cc }) {
+  return (
+    <div className="card">
+      <p className="text-sm font-semibold text-white mb-0.5">{label}</p>
+      {hint && <p className="text-xs text-gray-500 mb-2">{hint}</p>}
+      <div className="flex flex-wrap gap-2">
+        {options.map(opt => (
+          <button key={opt.value} type="button" disabled={disabled}
+            onClick={() => onChange(opt.value)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all disabled:opacity-40 ${
+              value === opt.value
+                ? `${cc.bg} ${cc.border} ${cc.text}`
+                : 'border-dark-500 text-gray-500 hover:text-gray-300'
+            }`}>
+            {opt.label}
+            <span className={`ml-1.5 font-mono font-bold ${value === opt.value ? cc.text : 'text-gray-600'}`}>
+              {opt.value} pts
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ── Misiones Junior (WRO 2026 — Robots Meet Culture) ─────────────────────────
+function JuniorMissions({ missions, onChange, disabled, cc }) {
+  const total = calcJuniorMissionScore(missions)
+  const set = (key, val) => !disabled && onChange({ ...missions, [key]: val })
+
+  const MIC_OPTS = [
+    { value: 20, label: 'Completamente dentro y vertical' },
+    { value: 10, label: 'Parcialmente o no vertical' },
+    { value: 0,  label: 'Fuera del área' },
+  ]
+  const CABLE_OPTS = [
+    { value: 15, label: 'Completo y vertical' },
+    { value: 5,  label: 'Parcial o no vertical' },
+    { value: 0,  label: 'Fuera' },
+  ]
+  const BOCINA_OPTS = [
+    { value: 20, label: 'Completo y vertical' },
+    { value: 5,  label: 'Parcial o no vertical' },
+    { value: 0,  label: 'Fuera' },
+  ]
+  const NOTA_OPTS = [
+    { value: 10, label: 'Completamente dentro' },
+    { value: 5,  label: 'Parcialmente dentro' },
+    { value: 0,  label: 'Fuera' },
+  ]
+  const CLAVE_OPTS = [
+    { value: 15, label: 'Completamente dentro' },
+    { value: 5,  label: 'Parcialmente dentro' },
+    { value: 0,  label: 'Fuera' },
+  ]
+
+  return (
+    <div className="space-y-3">
+      {/* Barra total */}
+      <div className={`card ${cc.bg} ${cc.border}`}>
+        <div className="flex items-center justify-between mb-1">
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Puntaje misión</p>
+          <span className={`font-mono font-bold text-xl ${cc.text}`}>
+            {total} <span className="text-sm text-gray-500 font-normal">/ {JUNIOR_MISSION_MAX}</span>
+          </span>
+        </div>
+        <div className="h-2 bg-dark-600 rounded-full overflow-hidden">
+          <motion.div className={`h-full ${cc.bar} rounded-full`}
+            style={{ width: `${(total / JUNIOR_MISSION_MAX) * 100}%` }} transition={{ duration: 0.3 }} />
+        </div>
+      </div>
+
+      {/* 4.1 Micrófono */}
+      <div className={`card ${cc.bg} ${cc.border} space-y-2`}>
+        <p className={`text-xs font-bold uppercase tracking-wide ${cc.text}`}>4.1 Prepara el espectáculo</p>
+        <ChoiceField
+          label="Micrófono"
+          hint="Zona verde claro del escenario — máx 20 pts"
+          options={MIC_OPTS} value={missions.microfono}
+          onChange={v => set('microfono', v)} disabled={disabled} cc={cc} />
+      </div>
+
+      {/* 4.1 Instrumentos */}
+      <div className="card space-y-2">
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-semibold text-white">Instrumentos (×3)</p>
+          <span className={`font-mono text-sm font-bold ${cc.text}`}>
+            {(missions.instrumento1||0)+(missions.instrumento2||0)+(missions.instrumento3||0)} / 45 pts
+          </span>
+        </div>
+        <p className="text-xs text-gray-500">Zona detrás del escenario (área rosa) — 15 pts c/u si completamente dentro</p>
+        {[['instrumento1','Guitarra'],['instrumento2','Teclado'],['instrumento3','Conga']].map(([key, label]) => (
+          <div key={key} className="flex items-center gap-3">
+            <p className="text-xs text-gray-400 flex-1">{label}</p>
+            <div className="flex gap-2">
+              {[15, 0].map(v => (
+                <button key={v} type="button" disabled={disabled}
+                  onClick={() => set(key, v)}
+                  className={`px-3 py-1 rounded-lg text-xs font-semibold border transition-all disabled:opacity-40 ${
+                    missions[key] === v
+                      ? `${cc.bg} ${cc.border} ${cc.text}`
+                      : 'border-dark-500 text-gray-500 hover:text-gray-300'
+                  }`}>
+                  {v === 15 ? '✓ 15 pts' : '✗ 0 pts'}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* 4.2 Cables */}
+      <div className={`card ${cc.bg} ${cc.border} space-y-2`}>
+        <p className={`text-xs font-bold uppercase tracking-wide ${cc.text}`}>4.2 Conecta el amplificador</p>
+        {[['cable1','Cable 1 (zona superior)'],['cable2','Cable 2 (zona inferior)']].map(([key, label]) => (
+          <ChoiceField key={key} label={label} hint="Zona gris — máx 15 pts"
+            options={CABLE_OPTS} value={missions[key]}
+            onChange={v => set(key, v)} disabled={disabled} cc={cc} />
+        ))}
+      </div>
+
+      {/* 4.3 Bocinas */}
+      <div className={`card ${cc.bg} ${cc.border} space-y-2`}>
+        <p className={`text-xs font-bold uppercase tracking-wide ${cc.text}`}>4.3 Bocinas al escenario</p>
+        {[['bocina1','Bocina 1'],['bocina2','Bocina 2']].map(([key, label]) => (
+          <ChoiceField key={key} label={label} hint="Zona café del escenario — máx 20 pts"
+            options={BOCINA_OPTS} value={missions[key]}
+            onChange={v => set(key, v)} disabled={disabled} cc={cc} />
+        ))}
+      </div>
+
+      {/* 4.4 Notas musicales */}
+      <div className={`card ${cc.bg} ${cc.border} space-y-2`}>
+        <p className={`text-xs font-bold uppercase tracking-wide ${cc.text}`}>4.4 Notas musicales</p>
+        <ChoiceField label="Nota verde" hint="Zona de patrocinadores — posición libre"
+          options={NOTA_OPTS} value={missions.nota_verde}
+          onChange={v => set('nota_verde', v)} disabled={disabled} cc={cc} />
+        <ChoiceField label="Nota roja" hint='Zona de logo "The Robots Meet Culture" — posición libre'
+          options={NOTA_OPTS} value={missions.nota_roja}
+          onChange={v => set('nota_roja', v)} disabled={disabled} cc={cc} />
+      </div>
+
+      {/* 4.5 Clave */}
+      <div className={`card ${cc.bg} ${cc.border}`}>
+        <p className={`text-xs font-bold uppercase tracking-wide ${cc.text} mb-2`}>4.5 Clave → Zona de descanso</p>
+        <ChoiceField label="Clave (azul)" hint="Zona café de descanso — máx 15 pts"
+          options={CLAVE_OPTS} value={missions.clave}
+          onChange={v => set('clave', v)} disabled={disabled} cc={cc} />
+      </div>
+    </div>
+  )
+}
+
+// ── Elementary: entrada numérica libre ───────────────────────────────────────
+function ElementaryMission({ round, missionScore, onChange, disabled, cc }) {
   return (
     <div className={`card ${cc.bg} ${cc.border}`}>
       <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Ronda {round} — Puntaje en tapete</p>
@@ -26,82 +183,24 @@ function MissionRoundTab({ round, missionScore, onChange, disabled, cc }) {
           className="w-10 h-10 rounded-xl bg-dark-600 border border-dark-500 text-gray-300 font-bold text-xl flex items-center justify-center disabled:opacity-40">+</button>
         <span className="text-gray-500 text-sm">/ {MISSION_MAX}</span>
       </div>
+      <p className="text-xs text-gray-600 mt-3">Ingresa los puntos que el equipo obtuvo en el tapete durante la ronda.</p>
     </div>
   )
 }
 
-// Rúbrica de documentación
-function DocRubric({ scores, onChange, disabled, cc }) {
-  const total = DOC_RUBRIC.reduce((acc, c) => acc + (scores[c.id] ?? 0), 0)
-  const [hints, setHints] = useState({})
-
-  return (
-    <div className="space-y-3">
-      <div className={`card ${cc.bg} ${cc.border}`}>
-        <div className="flex items-center justify-between">
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Rúbrica de Documentación</p>
-          <span className={`font-mono font-bold ${cc.text}`}>{total}/{DOC_MAX}</span>
-        </div>
-        <div className="h-2 bg-dark-600 rounded-full overflow-hidden mt-2">
-          <motion.div className={`h-full ${cc.bar} rounded-full`} style={{ width: `${(total / DOC_MAX) * 100}%` }} transition={{ duration: 0.3 }} />
-        </div>
-      </div>
-
-      {DOC_RUBRIC.map(criterion => {
-        const val = scores[criterion.id] ?? 0
-        return (
-          <div key={criterion.id} className="card">
-            <div className="flex items-start justify-between gap-3 mb-2">
-              <div className="flex-1">
-                <div className="flex items-center gap-1.5">
-                  <p className="text-sm font-semibold text-white">{criterion.label}</p>
-                  <button type="button" onClick={() => setHints(h => ({ ...h, [criterion.id]: !h[criterion.id] }))}
-                    className="text-gray-600 hover:text-gray-400"><Info size={13} /></button>
-                </div>
-                <p className="text-xs text-gray-500">máx. {criterion.maxPts} pts</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <button type="button" disabled={disabled} onClick={() => onChange(criterion.id, Math.max(0, val - 1))}
-                  className="w-8 h-8 rounded-lg bg-dark-600 border border-dark-500 text-gray-300 font-bold flex items-center justify-center disabled:opacity-40">−</button>
-                <span className={`w-10 text-center font-mono font-bold text-xl ${cc.text}`}>{val}</span>
-                <button type="button" disabled={disabled} onClick={() => onChange(criterion.id, Math.min(criterion.maxPts, val + 1))}
-                  className="w-8 h-8 rounded-lg bg-dark-600 border border-dark-500 text-gray-300 font-bold flex items-center justify-center disabled:opacity-40">+</button>
-              </div>
-            </div>
-            <AnimatePresence>
-              {hints[criterion.id] && (
-                <motion.p initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }} className="text-xs text-gray-500 italic overflow-hidden">
-                  {criterion.hint}
-                </motion.p>
-              )}
-            </AnimatePresence>
-            <div className="flex items-center gap-2 mt-1">
-              <div className="flex-1 h-1.5 bg-dark-600 rounded-full overflow-hidden">
-                <motion.div className={`h-full ${cc.bar} rounded-full`}
-                  style={{ width: `${(val / criterion.maxPts) * 100}%` }} transition={{ duration: 0.2 }} />
-              </div>
-            </div>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
+// ── ScoreSheet principal ──────────────────────────────────────────────────────
 export default function RSScoreSheet({ team, category, round, onClose, onSaved }) {
   const { user, profile } = useAuth()
   const cc = CC[category] || CC.elementary
+  const isJunior = category === 'junior'
 
-  // tab: 'mission' | 'doc'
-  const [tab, setTab]             = useState('mission')
-  const [missionScore, setMissionScore] = useState(0)
-  const [docScores, setDocScores] = useState({})
-  const [loading, setLoading]     = useState(true)
-  const [saving, setSaving]       = useState(false)
+  const [missionScore, setMissionScore]     = useState(0)
+  const [juniorMissions, setJuniorMissions] = useState({ ...JUNIOR_MISSION_DEFAULTS })
+  const [loading, setLoading]   = useState(true)
+  const [saving, setSaving]     = useState(false)
   const [finalized, setFinalized] = useState(false)
   const [savedOnce, setSavedOnce] = useState(false)
-  const [toast, setToast]         = useState(null)
+  const [toast, setToast]       = useState(null)
 
   const scoreId = `${team.id}_r${round}`
 
@@ -109,8 +208,11 @@ export default function RSScoreSheet({ team, category, round, onClose, onSaved }
     getDoc(doc(db, 'rs_scores', scoreId)).then(snap => {
       if (snap.exists()) {
         const d = snap.data()
-        setMissionScore(d.missionScore ?? 0)
-        setDocScores(d.docScores || {})
+        if (isJunior && d.missionBreakdown) {
+          setJuniorMissions({ ...JUNIOR_MISSION_DEFAULTS, ...d.missionBreakdown })
+        } else {
+          setMissionScore(d.missionScore ?? 0)
+        }
         setFinalized(d.finalized || false)
         setSavedOnce(true)
       }
@@ -118,15 +220,17 @@ export default function RSScoreSheet({ team, category, round, onClose, onSaved }
     }).catch(() => setLoading(false))
   }, [scoreId])
 
-  const docTotal     = DOC_RUBRIC.reduce((acc, c) => acc + (docScores[c.id] ?? 0), 0)
-  const grandTotal   = missionScore + docTotal
+  const total = isJunior ? calcJuniorMissionScore(juniorMissions) : missionScore
+  const mMax  = isJunior ? JUNIOR_MISSION_MAX : MISSION_MAX
 
   const showToast = (type, msg) => { setToast({ type, msg }); setTimeout(() => setToast(null), 3000) }
 
   const buildPayload = (fin) => ({
     teamId: team.id, teamName: team.name, category, round,
     judgeUid: user.uid, judgeName: profile?.name || user.email,
-    missionScore, docScores, docTotal, total: grandTotal,
+    missionScore: total,
+    ...(isJunior ? { missionBreakdown: juniorMissions } : {}),
+    total,
     finalized: fin, savedAt: serverTimestamp(),
   })
 
@@ -172,49 +276,18 @@ export default function RSScoreSheet({ team, category, round, onClose, onSaved }
 
       {/* Total */}
       <div className={`card ${cc.bg} ${cc.border}`}>
-        <div className="flex items-end justify-between mb-1">
-          <div>
-            <p className="text-xs text-gray-400 uppercase tracking-wider font-semibold">Total ronda {round}</p>
-            <p className={`font-mono font-extrabold text-3xl ${cc.text}`}>
-              {grandTotal} <span className="text-sm text-gray-500 font-normal">pts</span>
-            </p>
-          </div>
-          <div className="text-right text-xs text-gray-500">
-            <p>Misión: <span className={cc.text}>{missionScore}</span></p>
-            <p>Doc: <span className={cc.text}>{docTotal}</span></p>
-          </div>
-        </div>
+        <p className="text-xs text-gray-400 uppercase tracking-wider font-semibold mb-1">Total ronda {round}</p>
+        <p className={`font-mono font-extrabold text-3xl ${cc.text}`}>
+          {total} <span className="text-sm text-gray-500 font-normal">/ {mMax} pts</span>
+        </p>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-2 bg-dark-700 p-1 rounded-xl">
-        {[['mission', '🎯 Misión'], ['doc', '📄 Documentación']].map(([id, label]) => (
-          <button key={id} onClick={() => setTab(id)}
-            className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-all ${
-              tab === id ? 'bg-dark-600 text-white shadow' : 'text-gray-500 hover:text-gray-300'
-            }`}>
-            {label}
-          </button>
-        ))}
-      </div>
-
-      <AnimatePresence mode="wait">
-        {tab === 'mission' ? (
-          <motion.div key="mission" initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 12 }}>
-            <MissionRoundTab round={round} missionScore={missionScore}
-              onChange={setMissionScore} disabled={finalized} cc={cc} />
-            <p className="text-xs text-gray-600 mt-2 text-center">
-              Ingresa los puntos que el equipo obtuvo en el tapete durante la ronda.
-            </p>
-          </motion.div>
-        ) : (
-          <motion.div key="doc" initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }}>
-            <DocRubric scores={docScores}
-              onChange={(id, val) => !finalized && setDocScores(s => ({ ...s, [id]: val }))}
-              disabled={finalized} cc={cc} />
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* Misiones */}
+      {isJunior
+        ? <JuniorMissions missions={juniorMissions} onChange={setJuniorMissions} disabled={finalized} cc={cc} />
+        : <ElementaryMission round={round} missionScore={missionScore}
+            onChange={setMissionScore} disabled={finalized} cc={cc} />
+      }
 
       {/* Toast */}
       <AnimatePresence>

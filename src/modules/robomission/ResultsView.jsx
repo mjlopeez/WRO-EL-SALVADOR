@@ -76,23 +76,24 @@ export default function ResultsView() {
     const totals = roundScores.map(s => s?.total ?? null)
     const valid  = totals.filter(t => t !== null)
     const best   = valid.length > 0 ? Math.max(...valid) : null
-    return { team, roundScores, totals, best }
+    const sum    = valid.length > 0 ? valid.reduce((acc, x) => acc + x, 0) : null
+    return { team, roundScores, totals, best, sum }
   }).sort((a, b) => {
-    if (a.best === null && b.best === null) return 0
-    if (a.best === null) return 1
-    if (b.best === null) return -1
-    return b.best - a.best
+    if (a.sum === null && b.sum === null) return 0
+    if (a.sum === null) return 1
+    if (b.sum === null) return -1
+    return b.sum - a.sum || b.best - a.best
   })
 
   // Export CSV
   const handleExport = () => {
-    const rows = [['Pos', 'Equipo', 'Número', 'Institución', 'Ronda 1', 'Ronda 2', 'Ronda 3', 'Mejor']]
-    teamRows.forEach(({ team, totals, best }, i) => {
+    const rows = [['Pos', 'Equipo', 'Número', 'Institución', 'Ronda 1', 'Ronda 2', 'Ronda 3', 'Total', 'Mejor']]
+    teamRows.forEach(({ team, totals, best, sum }, i) => {
       rows.push([
-        best !== null ? i + 1 : '—',
+        sum !== null ? i + 1 : '—',
         team.name, team.number || '', team.school || '',
         totals[0] ?? '', totals[1] ?? '', totals[2] ?? '',
-        best ?? '',
+        sum ?? '', best ?? '',
       ])
     })
     const csv  = rows.map(r => r.join(',')).join('\n')
@@ -118,8 +119,9 @@ export default function ResultsView() {
           const valid  = rounds.filter(x => x !== null)
           const best   = valid.length > 0 ? Math.max(...valid) : 0
           const total  = rounds.reduce((acc, x) => acc + (x || 0), 0)
-          return { teamId: team.id, teamName: team.name, teamNumber: team.number, school: team.school, category: cat, rounds, best, total, maxTotal: MAX_MAP[cat] }
-        }).sort((a, b) => b.best - a.best || b.total - a.total)
+          const sumPts = rounds.reduce((acc, x) => acc + (x || 0), 0)
+          return { teamId: team.id, teamName: team.name, teamNumber: team.number || '', school: team.school || '', category: cat, rounds, best, total: sumPts, maxTotal: MAX_MAP[cat] * 3 }
+        }).sort((a, b) => b.total - a.total || b.best - a.best)
         ranking.push(...ranked)
       }
       const ts = new Date().toISOString()
@@ -227,12 +229,12 @@ export default function ResultsView() {
                 {ROUNDS.map(r => (
                   <th key={r} className="text-center text-xs text-gray-500 font-medium px-3 py-3 w-20 hidden sm:table-cell">R{r}</th>
                 ))}
-                <th className="text-center text-xs text-gray-500 font-medium px-4 py-3 w-24">Mejor</th>
+                <th className="text-center text-xs text-gray-500 font-medium px-4 py-3 w-24">Total</th>
                 <th className="w-8 px-3 py-3" />
               </tr>
             </thead>
             <tbody>
-              {teamRows.map(({ team, roundScores, totals, best }, idx) => (
+              {teamRows.map(({ team, roundScores, totals, best, sum }, idx) => (
                 <>
                   <tr
                     key={team.id}
@@ -245,7 +247,7 @@ export default function ResultsView() {
                           ? idx === 0 ? 'text-yellow-400' : idx === 1 ? 'text-gray-300' : idx === 2 ? 'text-amber-600' : cc.text
                           : 'text-gray-600'
                       }`}>
-                        {best !== null ? idx + 1 : '—'}
+                        {sum !== null ? idx + 1 : '—'}
                       </span>
                     </td>
                     <td className="px-4 py-3">
@@ -261,8 +263,8 @@ export default function ResultsView() {
                       </td>
                     ))}
                     <td className="text-center px-4 py-3">
-                      {best !== null
-                        ? <span className={`font-mono font-extrabold text-base ${cc.text}`}>{best}</span>
+                      {sum !== null
+                        ? <span className={`font-mono font-extrabold text-base ${cc.text}`}>{sum}</span>
                         : <span className="text-gray-600 text-sm">—</span>
                       }
                     </td>

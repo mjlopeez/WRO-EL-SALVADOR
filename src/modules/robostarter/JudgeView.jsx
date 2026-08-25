@@ -18,7 +18,7 @@ const TOTAL_MAX = MISSION_MAX + DOC_MAX  // 300
 function SummaryView({ team, category, savedData }) {
   const cc = catColors[category] || catColors.elementary
   const bestMission = Math.max(...ROUNDS.map(r => savedData[r]?.missionScore ?? 0))
-  const bestDoc     = Math.max(...ROUNDS.map(r => savedData[r]?.docTotal ?? 0))
+  const sumTotal    = ROUNDS.reduce((acc, r) => acc + (savedData[r]?.total ?? 0), 0)
   const bestTotal   = Math.max(...ROUNDS.map(r => savedData[r]?.total ?? 0))
 
   return (
@@ -53,14 +53,14 @@ function SummaryView({ team, category, savedData }) {
         </div>
         <div className="mt-5 pt-4 border-t border-dark-600 space-y-2">
           <div className="flex justify-between">
-            <span className="text-gray-400 text-sm">Mejor ronda total</span>
-            <span className={`font-mono font-extrabold text-xl ${cc.text}`}>{bestTotal} pts</span>
+            <span className="text-gray-400 text-sm">Suma total (3 rondas)</span>
+            <span className={`font-mono font-extrabold text-xl ${cc.text}`}>{sumTotal} pts</span>
+          </div>
+          <div className="flex justify-between text-xs text-gray-500">
+            <span>Mejor ronda individual</span><span className={cc.text}>{bestTotal}/{MISSION_MAX}</span>
           </div>
           <div className="flex justify-between text-xs text-gray-500">
             <span>Mejor misión</span><span className={cc.text}>{bestMission}/{MISSION_MAX}</span>
-          </div>
-          <div className="flex justify-between text-xs text-gray-500">
-            <span>Mejor doc</span><span className={cc.text}>{bestDoc}/{DOC_MAX}</span>
           </div>
         </div>
       </div>

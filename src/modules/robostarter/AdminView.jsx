@@ -37,7 +37,7 @@ function useTopTeams() {
         return { team, best, sum }
       })
       .filter(r => r.best !== null)
-      .sort((a, b) => b.best - a.best || b.sum - a.sum)
+      .sort((a, b) => b.sum - a.sum || b.best - a.best)
       .slice(0, 3)
     return acc
   }, {})
@@ -93,7 +93,7 @@ function OverviewTab({ setTab }) {
                         <p className="text-sm font-semibold text-white truncate">{r.team.name}</p>
                         {r.team.institution && <p className="text-xs text-gray-500 truncate">{r.team.institution}</p>}
                       </div>
-                      <span className={`font-mono font-bold ${cc.text}`}>{r.best}</span>
+                      <span className={`font-mono font-bold ${cc.text}`}>{r.sum}</span>
                     </div>
                   ))}
                 </div>
@@ -113,8 +113,7 @@ function OverviewTab({ setTab }) {
         <div className="text-xs text-gray-400 space-y-1">
           <p>• Categoría <strong className="text-white">formativa</strong> — no clasifica a la final internacional.</p>
           <p>• Hardware y software: <strong className="text-white">Robo Robo</strong>.</p>
-          <p>• Puntaje = Misión en tapete ({MISSION_MAX} pts máx.) + Documentación ({DOC_MAX} pts máx.).</p>
-          <p>• Documentación: diseño, programación, pruebas, presentación y trabajo en equipo (20 pts c/u).</p>
+          <p>• Puntaje = Misión en tapete. Junior: máx <strong className="text-white">170 pts</strong> · Elementary: referencia <strong className="text-white">200 pts</strong>.</p>
           <p>• Clasificación por <strong className="text-white">mejor ronda</strong> individual.</p>
         </div>
       </div>

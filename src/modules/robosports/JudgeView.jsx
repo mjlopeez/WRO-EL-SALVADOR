@@ -1,63 +1,210 @@
 // RoboSports — Panel de Juez / Árbitro
-// El juez registra partidos: selecciona dos equipos y anota sets ganados por cada uno.
-// Un partido es mejor de 3 sets; gana quien llega primero a 2 sets.
+// Sistema WRO 2026: contar pelotas (naranja +1, morada -2) en CADA mitad del campo.
+// Menor puntaje gana el partido. Un juego = 3 partidos.
+// Forfeit: infractor queda con puntaje 9, rival con -4.
 
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  LogOut, Search, X, Users, ChevronRight, Save, CheckCircle, Lock,
-  BarChart2, Swords, Plus, Minus
+  LogOut, ChevronRight, Save, CheckCircle, Lock, Swords,
+  Plus, Minus, AlertTriangle, Trophy
 } from 'lucide-react'
 import {
-  collection, onSnapshot, addDoc, setDoc, doc, getDoc, serverTimestamp
+  collection, onSnapshot, addDoc, setDoc, doc, serverTimestamp
 } from 'firebase/firestore'
 import { db } from '../../firebase'
 import { useAuth } from '../../contexts/AuthContext'
-import { ROUNDS, SETS_TO_WIN } from './config'
+import {
+  ROUNDS, MAX_ORANGE, MAX_PURPLE,
+  calcScore, matchWinner, calcGameResult, emptyMatch, MATCHES_PER_GAME
+} from './config'
 
 const cc = { bg: 'bg-sky-500/10', border: 'border-sky-500/30', text: 'text-sky-400', solid: 'bg-sky-500' }
 
-// ── Match Recorder ────────────────────────────────────────────────────────────
-function MatchRecorder({ teams, onClose, editMatch }) {
+// ── BallCounter ───────────────────────────────────────────────────────────────
+function BallCounter({ label, emoji, value, onChange, max, disabled, color = 'sky' }) {
+  const colorMap = {
+    orange: { ring: 'border-orange-400/50', num: 'text-orange-300', btn: 'bg-orange-500/10 hover:bg-orange-500/20 border-orange-400/30' },
+    purple: { ring: 'border-purple-400/50', num: 'text-purple-300', btn: 'bg-purple-500/10 hover:bg-purple-500/20 border-purple-400/30' },
+    sky:    { ring: 'border-sky-400/50',    num: 'text-sky-300',    btn: 'bg-sky-500/10 hover:bg-sky-500/20 border-sky-400/30' },
+  }
+  const c = colorMap[color] || colorMap.sky
+  return (
+    <div className="flex flex-col items-center gap-1">
+      <p className="text-xs text-gray-500 font-semibold">{emoji} {label}</p>
+      <div className="flex items-center gap-1">
+        <button onClick={() => !disabled && onChange(Math.max(0, value - 1))} disabled={disabled || value <= 0}
+          className={`w-7 h-7 rounded-lg border text-white font-bold flex items-center justify-center text-sm transition-all disabled:opacity-30 ${c.btn}`}>
+          <Minus size={13} />
+        </button>
+        <span className={`w-8 text-center font-mono font-extrabold text-lg ${c.num}`}>{value}</span>
+        <button onClick={() => !disabled && onChange(Math.min(max, value + 1))} disabled={disabled || value >= max}
+          className={`w-7 h-7 rounded-lg border text-white font-bold flex items-center justify-center text-sm transition-all disabled:opacity-30 ${c.btn}`}>
+          <Plus size={13} />
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── MatchPanel — un partido (de 3) ────────────────────────────────────────────
+function MatchPanel({ idx, match, onChange, disabled }) {
+  const { orangeA, purpleA, scoreA, orangeB, purpleB, scoreB, winner, forfeit } = match
+
+  const setField = (field, value) => {
+    const next = { ...match, [field]: value }
+    // Recalcular scores si no hay forfeit activo en ese campo
+    if (!next.forfeit) {
+      next.scoreA  = calcScore(next.orangeA, next.purpleA)
+      next.scoreB  = calcScore(next.orangeB, next.purpleB)
+      next.winner  = matchWinner(next.scoreA, next.scoreB)
+    }
+    onChange(idx, next)
+  }
+
+  const applyForfeit = (side) => {
+    // side = 'A' significa A es el infractor
+    const next = { ...match, forfeit: side }
+    if (side === 'A') {
+      next.orangeA = 9; next.purpleA = 0; next.scoreA = 9
+      next.orangeB = 0; next.purpleB = 2; next.scoreB = -4
+      next.winner = 'B'
+    } else {
+      next.orangeB = 9; next.purpleB = 0; next.scoreB = 9
+      next.orangeA = 0; next.purpleA = 2; next.scoreA = -4
+      next.winner = 'A'
+    }
+    onChange(idx, next)
+  }
+
+  const clearForfeit = () => {
+    const next = { ...match, forfeit: null,
+      orangeA: 0, purpleA: 0, scoreA: 0,
+      orangeB: 0, purpleB: 0, scoreB: 0, winner: 'draw' }
+    onChange(idx, next)
+  }
+
+  const winnerColor = (side) => winner === side ? 'text-green-400' : winner !== 'draw' ? 'text-gray-600' : 'text-gray-400'
+
+  return (
+    <div className={`rounded-2xl border p-4 space-y-3 ${forfeit ? 'border-red-500/30 bg-red-500/5' : 'border-dark-600 bg-dark-800'}`}>
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Partido {idx + 1}</p>
+        {!disabled && (
+          forfeit ? (
+            <button onClick={clearForfeit}
+              className="text-xs text-red-400 border border-red-500/30 px-2 py-0.5 rounded-lg hover:bg-red-500/10 transition-all">
+              ✕ Quitar forfeit
+            </button>
+          ) : (
+            <div className="flex gap-1">
+              <button onClick={() => applyForfeit('A')}
+                className="text-xs text-red-400 border border-red-500/20 px-2 py-0.5 rounded-lg hover:bg-red-500/10 transition-all">
+                Forfeit A
+              </button>
+              <button onClick={() => applyForfeit('B')}
+                className="text-xs text-red-400 border border-red-500/20 px-2 py-0.5 rounded-lg hover:bg-red-500/10 transition-all">
+                Forfeit B
+              </button>
+            </div>
+          )
+        )}
+      </div>
+
+      {forfeit && (
+        <div className="flex items-center gap-1.5 text-xs text-red-400 bg-red-500/10 rounded-lg px-3 py-1.5">
+          <AlertTriangle size={12} />
+          Forfeit — Equipo {forfeit} cometió la infracción
+        </div>
+      )}
+
+      <div className="grid grid-cols-[1fr_auto_1fr] gap-3 items-center">
+        {/* Equipo A */}
+        <div className="space-y-2">
+          <BallCounter label="Naranja" emoji="🟠" value={orangeA} max={MAX_ORANGE}
+            onChange={v => setField('orangeA', v)} disabled={disabled || !!forfeit} color="orange" />
+          <BallCounter label="Morada" emoji="🟣" value={purpleA} max={MAX_PURPLE}
+            onChange={v => setField('purpleA', v)} disabled={disabled || !!forfeit} color="purple" />
+        </div>
+
+        {/* Marcador central */}
+        <div className="flex flex-col items-center gap-1 min-w-[80px]">
+          <div className={`text-2xl font-mono font-extrabold ${winnerColor('A')}`}>{scoreA}</div>
+          <div className="text-gray-700 text-xs font-bold">vs</div>
+          <div className={`text-2xl font-mono font-extrabold ${winnerColor('B')}`}>{scoreB}</div>
+          <div className="text-xs mt-1 font-semibold">
+            {winner === 'A' ? <span className="text-green-400">A gana</span>
+              : winner === 'B' ? <span className="text-green-400">B gana</span>
+              : <span className="text-gray-500">Empate</span>}
+          </div>
+        </div>
+
+        {/* Equipo B */}
+        <div className="space-y-2 items-end flex flex-col">
+          <BallCounter label="Naranja" emoji="🟠" value={orangeB} max={MAX_ORANGE}
+            onChange={v => setField('orangeB', v)} disabled={disabled || !!forfeit} color="orange" />
+          <BallCounter label="Morada" emoji="🟣" value={purpleB} max={MAX_PURPLE}
+            onChange={v => setField('purpleB', v)} disabled={disabled || !!forfeit} color="purple" />
+        </div>
+      </div>
+
+      <p className="text-xs text-gray-700 text-center">Menor puntaje gana · naranja +1 · morada −2</p>
+    </div>
+  )
+}
+
+// ── GameRecorder ───────────────────────────────────────────────────────────────
+function GameRecorder({ teams, onClose, editGame }) {
   const { user, profile } = useAuth()
-  const [teamA, setTeamA]   = useState(editMatch?.teamAId || '')
-  const [teamB, setTeamB]   = useState(editMatch?.teamBId || '')
-  const [setsA, setSetsA]   = useState(editMatch?.setsA ?? 0)
-  const [setsB, setSetsB]   = useState(editMatch?.setsB ?? 0)
-  const [round, setRound]   = useState(editMatch?.round || ROUNDS[0])
-  const [finalized, setFinalized] = useState(editMatch?.finalized || false)
+  const [teamA, setTeamA] = useState(editGame?.teamAId || '')
+  const [teamB, setTeamB] = useState(editGame?.teamBId || '')
+  const [round, setRound] = useState(editGame?.round || ROUNDS[0])
+  const [matchData, setMatchData] = useState(
+    editGame?.matchData || Array.from({ length: MATCHES_PER_GAME }, emptyMatch)
+  )
+  const [finalized, setFinalized] = useState(editGame?.finalized || false)
   const [saving, setSaving] = useState(false)
-  const [toast, setToast]   = useState(null)
+  const [toast, setToast] = useState(null)
 
   const showToast = (type, msg) => { setToast({ type, msg }); setTimeout(() => setToast(null), 3000) }
 
   const teamAData = teams.find(t => t.id === teamA)
   const teamBData = teams.find(t => t.id === teamB)
 
-  // Determine winner based on sets
-  const winner = setsA >= SETS_TO_WIN ? 'A' : setsB >= SETS_TO_WIN ? 'B' : null
+  const handleMatchChange = (idx, next) => {
+    setMatchData(prev => prev.map((m, i) => i === idx ? next : m))
+  }
 
-  const buildPayload = (fin) => ({
-    teamAId: teamA, teamAName: teamAData?.name || '',
-    teamBId: teamB, teamBName: teamBData?.name || '',
-    setsA, setsB, round,
-    winner: fin ? winner : null,
-    finalized: fin,
-    judgeUid: user.uid,
-    judgeName: profile?.name || user.email,
-    recordedAt: serverTimestamp(),
-  })
+  const gameResult = calcGameResult(matchData)
+
+  const buildPayload = (fin) => {
+    const res = calcGameResult(matchData)
+    return {
+      teamAId: teamA, teamAName: teamAData?.name || '',
+      teamBId: teamB, teamBName: teamBData?.name || '',
+      round,
+      matchData,
+      winsA: res.winsA, winsB: res.winsB, draws: res.draws,
+      gameWinner: fin ? res.gameWinner : null,
+      pointsA: fin ? res.pointsA : null,
+      pointsB: fin ? res.pointsB : null,
+      finalized: fin,
+      judgeUid: user.uid,
+      judgeName: profile?.name || user.email,
+      recordedAt: serverTimestamp(),
+    }
+  }
 
   const handleSave = async (finalize = false) => {
     if (!teamA || !teamB || teamA === teamB) { showToast('error', 'Selecciona dos equipos distintos.'); return }
     setSaving(true)
     try {
-      if (editMatch?.id) {
-        await setDoc(doc(db, 'rsp_matches', editMatch.id), buildPayload(finalize), { merge: true })
+      if (editGame?.id) {
+        await setDoc(doc(db, 'rsp_matches', editGame.id), buildPayload(finalize), { merge: true })
       } else {
         await addDoc(collection(db, 'rsp_matches'), buildPayload(finalize))
       }
-      showToast('success', finalize ? '¡Partido registrado!' : 'Borrador guardado.')
+      showToast('success', finalize ? '¡Juego registrado!' : 'Borrador guardado.')
       if (finalize) { setFinalized(true); setTimeout(onClose, 1200) }
     } catch { showToast('error', 'Error al guardar.') }
     finally { setSaving(false) }
@@ -75,9 +222,7 @@ function MatchRecorder({ teams, onClose, editMatch }) {
           className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-xl border text-sm text-left transition-all ${
             sel ? `${cc.bg} ${cc.border} ${cc.text} font-semibold` : 'border-dark-500 text-gray-500 bg-dark-700'
           } disabled:opacity-60`}>
-          {sel ? (
-            <><span className="flex-1 truncate">{sel.name}</span>{sel.number && <span className="text-xs opacity-60">#{sel.number}</span>}</>
-          ) : 'Seleccionar equipo'}
+          <span className="flex-1 truncate">{sel ? sel.name : 'Seleccionar equipo'}</span>
           <ChevronRight size={14} className="text-gray-600 shrink-0" />
         </button>
         <AnimatePresence>
@@ -102,27 +247,12 @@ function MatchRecorder({ teams, onClose, editMatch }) {
     )
   }
 
-  const SetCounter = ({ label, value, onChange, disabled, highlight }) => (
-    <div className={`flex-1 flex flex-col items-center gap-2 p-4 rounded-2xl border ${highlight ? `${cc.bg} ${cc.border}` : 'bg-dark-700 border-dark-600'}`}>
-      <p className={`text-xs font-bold uppercase tracking-wider ${highlight ? cc.text : 'text-gray-500'}`}>{label}</p>
-      <button onClick={() => !disabled && onChange(Math.min(value + 1, SETS_TO_WIN))} disabled={disabled}
-        className="w-10 h-10 rounded-xl bg-dark-600 border border-dark-500 text-gray-300 font-bold text-xl flex items-center justify-center disabled:opacity-40">
-        <Plus size={18} />
-      </button>
-      <span className={`font-mono font-extrabold text-4xl ${highlight ? cc.text : 'text-white'}`}>{value}</span>
-      <button onClick={() => !disabled && onChange(Math.max(0, value - 1))} disabled={disabled}
-        className="w-10 h-10 rounded-xl bg-dark-600 border border-dark-500 text-gray-300 font-bold text-xl flex items-center justify-center disabled:opacity-40">
-        <Minus size={18} />
-      </button>
-    </div>
-  )
-
   return (
-    <div className="min-h-screen p-4 max-w-lg mx-auto">
+    <div className="min-h-screen p-4 max-w-lg mx-auto pb-24">
       <div className="flex items-center gap-3 mb-5 mt-4">
-        <button onClick={onClose} className="btn-ghost p-2 py-1.5 text-sm">← Partidos</button>
+        <button onClick={onClose} className="btn-ghost p-2 py-1.5 text-sm">← Juegos</button>
         <p className="font-bold text-white flex-1 text-center">
-          {editMatch?.id ? 'Editar partido' : 'Nuevo partido'}
+          {editGame?.id ? 'Editar juego' : 'Nuevo juego'}
         </p>
         <div className="w-20" />
       </div>
@@ -130,12 +260,12 @@ function MatchRecorder({ teams, onClose, editMatch }) {
       {finalized && (
         <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-green-500/10 border border-green-500/30 mb-4">
           <Lock size={14} className="text-green-400 shrink-0" />
-          <p className="text-sm text-green-400 font-semibold">Partido registrado y cerrado.</p>
+          <p className="text-sm text-green-400 font-semibold">Juego registrado y cerrado.</p>
         </div>
       )}
 
       <div className="space-y-4">
-        {/* Round selector */}
+        {/* Round */}
         <div>
           <p className="text-xs text-gray-500 mb-1.5 font-semibold uppercase tracking-wider">Fase</p>
           <div className="flex flex-wrap gap-2">
@@ -150,50 +280,77 @@ function MatchRecorder({ teams, onClose, editMatch }) {
           </div>
         </div>
 
-        {/* Team pickers */}
+        {/* Equipos */}
         <div className="grid grid-cols-2 gap-3">
           <TeamPicker label="Equipo A" value={teamA} onChange={setTeamA} exclude={teamB} />
           <TeamPicker label="Equipo B" value={teamB} onChange={setTeamB} exclude={teamA} />
         </div>
 
-        {/* Divider */}
-        <div className="flex items-center gap-3">
-          <div className="flex-1 h-px bg-dark-600" />
-          <Swords size={16} className="text-gray-600" />
-          <div className="flex-1 h-px bg-dark-600" />
-        </div>
-
-        {/* Set counters */}
-        <div className="flex gap-3">
-          <SetCounter label={teamAData?.name || 'Equipo A'} value={setsA} onChange={setSetsA}
-            disabled={finalized} highlight={winner === 'A'} />
-          <SetCounter label={teamBData?.name || 'Equipo B'} value={setsB} onChange={setSetsB}
-            disabled={finalized} highlight={winner === 'B'} />
-        </div>
-
-        {/* Winner display */}
-        {winner && (
-          <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
-            className={`flex items-center gap-2 px-4 py-3 rounded-xl ${cc.bg} ${cc.border} border`}>
-            <CheckCircle size={16} className={cc.text} />
-            <p className={`font-bold ${cc.text} text-sm`}>
-              Ganador: {winner === 'A' ? teamAData?.name : teamBData?.name}
-            </p>
-          </motion.div>
+        {/* Nombres en cabecera de marcador */}
+        {(teamAData || teamBData) && (
+          <div className="grid grid-cols-[1fr_auto_1fr] gap-2 text-center">
+            <p className={`text-xs font-bold truncate ${cc.text}`}>{teamAData?.name || 'A'}</p>
+            <p className="text-xs text-gray-700">vs</p>
+            <p className={`text-xs font-bold truncate ${cc.text}`}>{teamBData?.name || 'B'}</p>
+          </div>
         )}
 
-        {/* Actions */}
+        {/* 3 partidos */}
+        {matchData.map((match, idx) => (
+          <MatchPanel key={idx} idx={idx} match={match} onChange={handleMatchChange} disabled={finalized} />
+        ))}
+
+        {/* Resultado del juego */}
+        <div className={`rounded-2xl border p-4 ${cc.bg} ${cc.border}`}>
+          <div className="flex items-center gap-2 mb-3">
+            <Trophy size={14} className={cc.text} />
+            <p className={`text-xs font-bold uppercase tracking-wider ${cc.text}`}>Resultado del juego</p>
+          </div>
+          <div className="grid grid-cols-3 text-center gap-2">
+            <div>
+              <p className={`font-mono font-extrabold text-3xl ${gameResult.gameWinner === 'A' ? 'text-green-400' : 'text-gray-500'}`}>
+                {gameResult.winsA}
+              </p>
+              <p className="text-xs text-gray-500">partidos A</p>
+              {gameResult.gameWinner === 'A' && <p className="text-xs text-green-400 font-bold mt-0.5">+3 pts</p>}
+              {gameResult.gameWinner === 'draw' && <p className="text-xs text-yellow-400 font-bold mt-0.5">+1 pt</p>}
+              {gameResult.gameWinner === 'B' && <p className="text-xs text-gray-600 font-bold mt-0.5">+0 pts</p>}
+            </div>
+            <div>
+              <p className="text-xs text-gray-600">{gameResult.draws} empate{gameResult.draws !== 1 ? 's' : ''}</p>
+              <div className="my-1">
+                {gameResult.gameWinner === 'draw'
+                  ? <span className="text-xs font-bold text-yellow-400 bg-yellow-400/10 border border-yellow-400/20 px-2 py-0.5 rounded-full">Empate</span>
+                  : <span className={`text-xs font-bold ${cc.text} bg-sky-500/10 border border-sky-500/20 px-2 py-0.5 rounded-full`}>
+                      Gana {gameResult.gameWinner}
+                    </span>
+                }
+              </div>
+            </div>
+            <div>
+              <p className={`font-mono font-extrabold text-3xl ${gameResult.gameWinner === 'B' ? 'text-green-400' : 'text-gray-500'}`}>
+                {gameResult.winsB}
+              </p>
+              <p className="text-xs text-gray-500">partidos B</p>
+              {gameResult.gameWinner === 'B' && <p className="text-xs text-green-400 font-bold mt-0.5">+3 pts</p>}
+              {gameResult.gameWinner === 'draw' && <p className="text-xs text-yellow-400 font-bold mt-0.5">+1 pt</p>}
+              {gameResult.gameWinner === 'A' && <p className="text-xs text-gray-600 font-bold mt-0.5">+0 pts</p>}
+            </div>
+          </div>
+        </div>
+
+        {/* Acciones */}
         {!finalized && (
           <div className="flex gap-3 pt-2">
             <button onClick={() => handleSave(false)} disabled={saving}
               className="btn-ghost flex-1 flex items-center justify-center gap-2 text-sm py-2">
               {saving ? <span className="w-4 h-4 border-2 border-gray-500 border-t-white rounded-full animate-spin" />
-                : <><Save size={15} /> Guardar borrador</>}
+                : <><Save size={15} /> Borrador</>}
             </button>
             <button onClick={() => handleSave(true)} disabled={saving || !teamA || !teamB || teamA === teamB}
               className="btn-primary flex-1 flex items-center justify-center gap-2 text-sm py-2 disabled:opacity-50">
               {saving ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                : <><CheckCircle size={15} /> Registrar resultado</>}
+                : <><CheckCircle size={15} /> Registrar juego</>}
             </button>
           </div>
         )}
@@ -219,31 +376,31 @@ function MatchRecorder({ teams, onClose, editMatch }) {
 // ── Main Judge View ────────────────────────────────────────────────────────────
 export default function RSPJudgeView() {
   const { profile, logout } = useAuth()
-  const [teams, setTeams]       = useState([])
-  const [matches, setMatches]   = useState([])
-  const [loading, setLoading]   = useState(true)
+  const [teams, setTeams]     = useState([])
+  const [games, setGames]     = useState([])
+  const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
-  const [editMatch, setEditMatch] = useState(null)
+  const [editGame, setEditGame] = useState(null)
 
   useEffect(() => {
     const u1 = onSnapshot(collection(db, 'rsp_teams'), s => {
-      setTeams(s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => (a.name||'').localeCompare(b.name||'')))
+      setTeams(s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.name || '').localeCompare(b.name || '')))
     })
     const u2 = onSnapshot(collection(db, 'rsp_matches'), s => {
-      setMatches(s.docs.map(d => ({ id: d.id, ...d.data() })))
+      setGames(s.docs.map(d => ({ id: d.id, ...d.data() })))
       setLoading(false)
     }, () => setLoading(false))
     return () => { u1(); u2() }
   }, [])
 
-  const getTeamName = (id) => teams.find(t => t.id === id)?.name || id
+  const getTeamName = id => teams.find(t => t.id === id)?.name || id
 
-  if (creating || editMatch) {
+  if (creating || editGame) {
     return (
-      <MatchRecorder
+      <GameRecorder
         teams={teams}
-        editMatch={editMatch}
-        onClose={() => { setCreating(false); setEditMatch(null) }}
+        editGame={editGame}
+        onClose={() => { setCreating(false); setEditGame(null) }}
       />
     )
   }
@@ -271,46 +428,54 @@ export default function RSPJudgeView() {
         </div>
       </div>
 
-      {/* New match button */}
       <button onClick={() => setCreating(true)}
         className="btn-primary w-full flex items-center justify-center gap-2 mb-5 py-3">
-        <Swords size={18} /> Registrar partido
+        <Swords size={18} /> Registrar juego
       </button>
 
-      {/* Recent matches */}
-      <p className="text-xs text-gray-600 font-semibold uppercase tracking-wider mb-2">Partidos registrados</p>
+      <p className="text-xs text-gray-600 font-semibold uppercase tracking-wider mb-2">Juegos registrados</p>
 
       {loading ? (
         <div className="flex items-center justify-center py-12">
           <div className="w-8 h-8 border-3 border-dark-500 border-t-sky-500 rounded-full animate-spin" />
         </div>
-      ) : matches.length === 0 ? (
+      ) : games.length === 0 ? (
         <div className="card text-center py-10">
           <Swords size={36} className="text-gray-600 mx-auto mb-3" />
-          <p className="text-gray-400 text-sm">Sin partidos aún.</p>
+          <p className="text-gray-400 text-sm">Sin juegos aún.</p>
         </div>
       ) : (
         <div className="space-y-2">
-          {[...matches].sort((a, b) => (b.recordedAt?.seconds || 0) - (a.recordedAt?.seconds || 0)).map((m, i) => (
-            <motion.button key={m.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.04 }} whileTap={{ scale: 0.98 }}
-              onClick={() => setEditMatch(m)}
-              className="w-full card-hover text-left">
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-xs px-2 py-0.5 rounded-full bg-dark-600 border border-dark-500 text-gray-500">{m.round}</span>
-                {m.finalized && <span className="text-xs text-green-400 font-semibold">✓ final</span>}
-              </div>
-              <div className="flex items-center gap-2 text-sm">
-                <span className={`font-semibold flex-1 truncate ${m.winner === 'A' ? cc.text : 'text-white'}`}>
-                  {m.teamAName || getTeamName(m.teamAId)}
-                </span>
-                <span className="font-mono font-bold text-white">{m.setsA} — {m.setsB}</span>
-                <span className={`font-semibold flex-1 truncate text-right ${m.winner === 'B' ? cc.text : 'text-white'}`}>
-                  {m.teamBName || getTeamName(m.teamBId)}
-                </span>
-              </div>
-            </motion.button>
-          ))}
+          {[...games].sort((a, b) => (b.recordedAt?.seconds || 0) - (a.recordedAt?.seconds || 0)).map((g, i) => {
+            const nameA = g.teamAName || getTeamName(g.teamAId)
+            const nameB = g.teamBName || getTeamName(g.teamBId)
+            const gw = g.gameWinner
+            return (
+              <motion.button key={g.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.04 }} whileTap={{ scale: 0.98 }}
+                onClick={() => setEditGame(g)}
+                className="w-full card-hover text-left">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-dark-600 border border-dark-500 text-gray-500">{g.round}</span>
+                  {g.finalized
+                    ? <span className="text-xs text-green-400 font-semibold">✓ final</span>
+                    : <span className="text-xs text-yellow-500 font-semibold">borrador</span>}
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <span className={`font-semibold flex-1 truncate ${gw === 'A' ? 'text-green-400' : 'text-white'}`}>{nameA}</span>
+                  <span className="font-mono font-bold text-white text-xs bg-dark-700 px-2 py-1 rounded-lg">
+                    {g.winsA ?? '?'} — {g.winsB ?? '?'}
+                  </span>
+                  <span className={`font-semibold flex-1 truncate text-right ${gw === 'B' ? 'text-green-400' : 'text-white'}`}>{nameB}</span>
+                </div>
+                {g.finalized && (
+                  <p className="text-xs text-gray-600 mt-1">
+                    Pts: {nameA} {g.pointsA ?? 0} · {nameB} {g.pointsB ?? 0}
+                  </p>
+                )}
+              </motion.button>
+            )
+          })}
         </div>
       )}
     </div>

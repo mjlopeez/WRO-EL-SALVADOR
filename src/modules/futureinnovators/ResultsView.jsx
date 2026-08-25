@@ -266,7 +266,7 @@ export default function FIResultsView() {
   const handlePublish = async () => {
     setPublishing(true)
     try {
-      const ranking = {}
+      const ranking = []
       for (const cat of CATEGORIES) {
         const catTeamsSorted = teams
           .filter(t => t.category === cat)
@@ -277,14 +277,16 @@ export default function FIResultsView() {
           })
           .filter(r => r.avg !== null)
           .sort((a, b) => (b.avg ?? 0) - (a.avg ?? 0))
-        ranking[cat] = catTeamsSorted.map(({ team, avg, scoreCount }) => ({
-          id:         team.id,
-          name:       team.name,
+        ranking.push(...catTeamsSorted.map(({ team, avg, scoreCount }) => ({
+          teamId:     team.id,
+          teamName:   team.name || '',
+          teamNumber: team.number || '',
           school:     team.school || '',
-          number:     team.number || '',
-          total:      avg,
-          scoreCount,
-        }))
+          category:   cat,
+          total:      avg ?? 0,
+          maxTotal:   MAX_SCORE,
+          scoreCount: scoreCount || 0,
+        })))
       }
       await setDoc(doc(db, 'published_results', 'fi'), {
         ranking,
@@ -294,6 +296,8 @@ export default function FIResultsView() {
       })
       setPublished(true)
       setTimeout(() => setPublished(false), 4000)
+    } catch (err) {
+      console.error('FI publish error:', err)
     } finally {
       setPublishing(false)
     }

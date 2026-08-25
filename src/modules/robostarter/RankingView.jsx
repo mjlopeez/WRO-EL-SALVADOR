@@ -11,6 +11,7 @@ const catColors = {
 
 const MEDALS = ['🥇', '🥈', '🥉']
 const TOTAL_MAX = MISSION_MAX + DOC_MAX
+const SUM_MAX   = TOTAL_MAX * 3   // máximo posible sumando las 3 rondas
 
 function useRanking() {
   const [teams, setTeams]   = useState([])
@@ -22,20 +23,18 @@ function useRanking() {
     return () => { u1(); u2() }
   }, [])
 
-  // Rank by best single-round total, tiebreak by sum of all rounds
+  // Rank by sum of all rounds; tiebreak by best single round
   return CATEGORIES.reduce((acc, cat) => {
     const catTeams = teams.filter(t => t.category === cat)
     acc[cat] = catTeams
       .map(team => {
         const ts   = scores.filter(s => s.teamId === team.id)
         const best = ts.length ? Math.max(...ts.map(s => s.total ?? 0)) : null
-        const bestMission = ts.length ? Math.max(...ts.map(s => s.missionScore ?? 0)) : null
-        const bestDoc     = ts.length ? Math.max(...ts.map(s => s.docTotal ?? 0)) : null
         const sum  = ts.reduce((a, s) => a + (s.total ?? 0), 0)
-        return { team, best, bestMission, bestDoc, sum, rounds: ts.length }
+        return { team, best, sum, rounds: ts.length }
       })
       .filter(r => r.best !== null)
-      .sort((a, b) => b.best - a.best || b.sum - a.sum)
+      .sort((a, b) => b.sum - a.sum || b.best - a.best)
     return acc
   }, {})
 }
@@ -66,9 +65,9 @@ export default function RSRankingView() {
 
       {/* Header info */}
       <div className={`card ${cc.bg} ${cc.border}`}>
-        <p className="text-xs text-gray-400 mb-1">Criterio de desempate</p>
+        <p className="text-xs text-gray-400 mb-1">Criterio de clasificación</p>
         <p className="text-sm text-gray-300">
-          Mejor puntaje total de una sola ronda (Misión + Documentación). Desempate por suma de todas las rondas.
+          Suma de las 3 rondas (máx. {SUM_MAX} pts). Desempate por mejor ronda individual.
         </p>
       </div>
 
@@ -79,7 +78,7 @@ export default function RSRankingView() {
       ) : (
         <div className="space-y-2">
           {ranked.map((r, i) => {
-            const pct = Math.round((r.best / TOTAL_MAX) * 100)
+            const pct = Math.round((r.sum / SUM_MAX) * 100)
             const medal = MEDALS[i]
             return (
               <motion.div key={r.team.id} initial={{ opacity: 0, x: -16 }} animate={{ opacity: 1, x: 0 }}
@@ -110,13 +109,9 @@ export default function RSRankingView() {
 
                   {/* Score */}
                   <div className="text-right shrink-0">
-                    <p className={`font-mono font-extrabold text-2xl ${i < 3 ? cc.text : 'text-white'}`}>{r.best}</p>
-                    <p className="text-xs text-gray-500">/ {TOTAL_MAX}</p>
-                    <div className="text-xs text-gray-600 mt-0.5">
-                      <span>mis: {r.bestMission}</span>
-                      <span className="mx-1">·</span>
-                      <span>doc: {r.bestDoc}</span>
-                    </div>
+                    <p className={`font-mono font-extrabold text-2xl ${i < 3 ? cc.text : 'text-white'}`}>{r.sum}</p>
+                    <p className="text-xs text-gray-500">/ {SUM_MAX}</p>
+                    <p className="text-xs text-gray-600 mt-0.5">mejor: {r.best}</p>
                   </div>
                 </div>
               </motion.div>

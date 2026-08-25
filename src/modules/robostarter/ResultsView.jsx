@@ -11,6 +11,7 @@ const catColors = {
 }
 
 const TOTAL_MAX = MISSION_MAX + DOC_MAX
+const SUM_MAX   = TOTAL_MAX * 3
 
 export default function RSResultsView() {
   const [teams, setTeams]         = useState([])
@@ -48,6 +49,10 @@ export default function RSResultsView() {
     if (!confirm('¿Publicar los resultados actuales en la pantalla pública?')) return
     setPublishing(true); setPublishMsg(null)
     try {
+      // Firestore rechaza undefined — limpiar el objeto antes de escribir
+      const clean = (obj) => Object.fromEntries(
+        Object.entries(obj).filter(([, v]) => v !== undefined && v !== null)
+      )
       const ranking = []
       for (const cat of CATEGORIES) {
         const catT = teams.filter(t => t.category === cat)
@@ -55,12 +60,15 @@ export default function RSResultsView() {
           const ts   = scores.filter(s => s.teamId === team.id)
           const best = ts.length ? Math.max(...ts.map(s => s.total ?? 0)) : 0
           const sum  = ts.reduce((a, s) => a + (s.total ?? 0), 0)
-          return {
-            teamId: team.id, teamName: team.name, teamNumber: team.number,
-            institution: team.institution, category: cat,
-            best, sum, maxTotal: TOTAL_MAX,
-          }
-        }).sort((a, b) => b.best - a.best || b.sum - a.sum)
+          return clean({
+            teamId: team.id, teamName: team.name || '',
+            teamNumber: team.number || null,
+            institution: team.institution || null, category: cat,
+            best, sum,
+            total: sum,          // DisplayScreen usa entry.total
+            maxTotal: SUM_MAX,   // barra de progreso sobre 600
+          })
+        }).sort((a, b) => b.sum - a.sum || b.best - a.best)
         ranking.push(...ranked)
       }
       await setDoc(doc(db, 'published_results', 'rs'), {
@@ -68,7 +76,8 @@ export default function RSResultsView() {
       })
       setPublishMsg({ type: 'success', text: '¡Resultados publicados en la pantalla!' })
       setTimeout(() => setPublishMsg(null), 4000)
-    } catch {
+    } catch (err) {
+      console.error('Publish error:', err)
       setPublishMsg({ type: 'error', text: 'Error al publicar.' })
     } finally {
       setPublishing(false)
@@ -160,13 +169,17 @@ export default function RSResultsView() {
                 </div>
 
                 {Object.values(roundScores).some(Boolean) && (() => {
+                  const sum  = ROUNDS.reduce((acc, r) => acc + (roundScores[r]?.total ?? 0), 0)
                   const best = Math.max(...ROUNDS.map(r => roundScores[r]?.total ?? 0))
-                  const pct  = Math.round((best / TOTAL_MAX) * 100)
+                  const pct  = Math.round((sum / SUM_MAX) * 100)
                   return (
                     <div className="mt-3 pt-3 border-t border-dark-600">
                       <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs text-gray-500">Mejor ronda</span>
-                        <span className={`font-mono font-bold ${cc.text}`}>{best} / {TOTAL_MAX}</span>
+                        <span className="text-xs text-gray-500">Suma total</span>
+                        <div className="text-right">
+                          <span className={`font-mono font-bold ${cc.text}`}>{sum} / {SUM_MAX}</span>
+                          <span className="text-xs text-gray-600 ml-2">mejor: {best}</span>
+                        </div>
                       </div>
                       <div className="h-1.5 bg-dark-600 rounded-full overflow-hidden">
                         <motion.div className={`h-full ${cc.badge} rounded-full`}
