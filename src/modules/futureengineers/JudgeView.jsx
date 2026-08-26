@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Search, X, ChevronRight, LogOut, BookOpen, Users, ExternalLink,
-  CheckCircle2, Play, Pause, RotateCcw, Flag, Save, Star,
+  CheckCircle2, Play, Pause, RotateCcw, Flag, Save, Star, AlertTriangle,
 } from 'lucide-react'
 import { collection, query, orderBy, onSnapshot, doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '../../firebase'
@@ -17,6 +17,9 @@ import {
 const fmtTime = s =>
   `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
 const DURATION = 180
+
+// Equipos que no entregaron el Diario de Ingeniería a tiempo → puntaje bloqueado en 0
+const DIARIO_DISABLED_TEAMS = ['compañe', 'autonova']
 
 // Elimina recursivamente cualquier campo con valor undefined (Firestore lo rechaza)
 function stripUndefined(obj) {
@@ -630,6 +633,7 @@ const SECTION_TABS = [
 function TeamScoring({ team, onClose }) {
   const { user } = useAuth()
   const scoreDocId = `${team.id}_${user.uid}`
+  const diarioDisabled = DIARIO_DISABLED_TEAMS.some(n => team?.name?.toLowerCase().includes(n))
 
   const [abierto,    setAbierto]    = useState({ r1: {}, r2: {} })
   const [obstaculos, setObstaculos] = useState({ r1: {}, r2: {} })
@@ -836,19 +840,34 @@ function TeamScoring({ team, onClose }) {
         {/* ── Diario ── */}
         {tab === 'diario' && (
           <motion.div key="diario" initial={{ opacity: 0, x: -16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 16 }}>
+            {diarioDisabled && (
+              <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/30 mb-4">
+                <AlertTriangle size={18} className="text-red-400 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-bold text-red-400 text-sm">Diario de Ingeniería no entregado</p>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Este equipo no entregó el Diario de Ingeniería a tiempo.
+                    Obtienen <span className="font-bold text-white">0 puntos</span> en esta sección.
+                    No es posible registrar puntaje.
+                  </p>
+                </div>
+              </div>
+            )}
             <DiarioTab
               scores={diario.scores ?? {}}
-              disabled={!!diario.finalized}
+              disabled={!!diario.finalized || diarioDisabled}
               onChange={scores => setDiario(prev => ({ ...prev, scores }))}
             />
-            <div className="mt-4">
-              <RoundButtons
-                roundKey="diario" isFinalized={!!diario.finalized}
-                saving={saving} saved={saved}
-                onSave={handleSaveDiario}
-                onSubmit={() => setShowConfirm({ label: 'Diario de Ingeniería', onConfirm: handleSubmitDiario })}
-              />
-            </div>
+            {!diarioDisabled && (
+              <div className="mt-4">
+                <RoundButtons
+                  roundKey="diario" isFinalized={!!diario.finalized}
+                  saving={saving} saved={saved}
+                  onSave={handleSaveDiario}
+                  onSubmit={() => setShowConfirm({ label: 'Diario de Ingeniería', onConfirm: handleSubmitDiario })}
+                />
+              </div>
+            )}
           </motion.div>
         )}
 
