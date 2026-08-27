@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { doc, getDoc, onSnapshot } from 'firebase/firestore'
@@ -18,23 +18,26 @@ const CAT_CFG = {
   senior:     { label: 'Senior',     cls: 'text-purple-400', bdr: 'border-purple-500/30', hex: '#c084fc' },
 }
 
+// seconds per row — higher = slower scroll
+const ROW_SPEED = 4.5
+
 const SLIDES = [
   { type: 'intro',   dur: 5000 },
   { type: 'title',   mod: 'rm',  dur: 3500 },
-  { type: 'results', mod: 'rm',  dur: 28000 },
+  { type: 'results', mod: 'rm' },
   { type: 'title',   mod: 'fi',  dur: 3500 },
-  { type: 'results', mod: 'fi',  dur: 28000 },
+  { type: 'results', mod: 'fi' },
   { type: 'title',   mod: 'rs',  dur: 3500 },
-  { type: 'results', mod: 'rs',  dur: 28000 },
+  { type: 'results', mod: 'rs' },
   { type: 'title',   mod: 'fe',  dur: 3500 },
-  { type: 'results', mod: 'fe',  dur: 20000 },
+  { type: 'results', mod: 'fe' },
   { type: 'title',   mod: 'rsp', dur: 3500 },
-  { type: 'results', mod: 'rsp', dur: 20000 },
+  { type: 'results', mod: 'rsp' },
 ]
 
 const medals = ['🥇', '🥈', '🥉']
 
-/* Row — noAnim skips stagger (used inside scroll loops) */
+/* Row */
 function EntryRow({ entry, idx, hex, noAnim }) {
   const pct = Math.min(100, Math.round((entry.total / (entry.maxTotal || 1)) * 100))
   const base = `flex items-center gap-3 rounded-xl px-4 py-3 border ${
@@ -76,12 +79,20 @@ function EntryRow({ entry, idx, hex, noAnim }) {
   )
 }
 
-/* Category column with auto-scroll for long lists */
-function CatColumn({ cat, entries }) {
+/* Category column — scrolls once from top to bottom, calls onScrollDone when complete */
+function CatColumn({ cat, entries, onScrollDone }) {
   const cc = CAT_CFG[cat]
-  // ~2s per entry gives comfortable reading pace; min 14s so short lists still scroll
-  const scrollDur = Math.max(14, entries.length * 2)
   const scroll = entries.length > 5
+  const scrollDur = Math.max(22, entries.length * ROW_SPEED)
+
+  // For non-scrolling cases, signal done after a display period
+  useEffect(() => {
+    if (!scroll) {
+      const delay = entries.length === 0 ? 1000 : 10000
+      const t = setTimeout(() => onScrollDone?.(), delay)
+      return () => clearTimeout(t)
+    }
+  }, [scroll, entries.length]) // eslint-disable-line
 
   return (
     <div className={`flex-1 flex flex-col rounded-2xl border ${cc.bdr} p-4`}
@@ -104,11 +115,13 @@ function CatColumn({ cat, entries }) {
         {entries.length === 0 ? (
           <p className="text-gray-600 text-sm text-center py-8">Sin resultados</p>
         ) : scroll ? (
-          /* Duplicate list for seamless infinite loop */
+          /* Duplicate list: animate once 0% → -50% = one full pass then visually back at top */
           <motion.div
             className="space-y-2"
-            animate={{ y: ['0%', '-50%'] }}
-            transition={{ duration: scrollDur, ease: 'linear', repeat: Infinity, repeatType: 'loop' }}
+            initial={{ y: '0%' }}
+            animate={{ y: '-50%' }}
+            transition={{ duration: scrollDur, ease: 'linear' }}
+            onAnimationComplete={onScrollDone}
           >
             {entries.map((e, i) => <EntryRow key={e.teamId + '-a'} entry={e} idx={i} hex={cc.hex} noAnim />)}
             {entries.map((e, i) => <EntryRow key={e.teamId + '-b'} entry={e} idx={i} hex={cc.hex} noAnim />)}
@@ -189,8 +202,44 @@ function TitleSlide({ modId }) {
   )
 }
 
-function ResultsSlide({ modId, ranking }) {
+/* ResultsSlide — calls onDone when every column finishes its scroll pass */
+function ResultsSlide({ modId, ranking, onDone }) {
   const m = MOD_CFG[modId]
+  const doneRef = useRef(0)
+  // How many columns need to report done before advancing
+  const numCols = m.cats ? 3 : 1
+  const advancedRef = useRef(false)
+  const onDoneRef = useRef(onDone)
+  useEffect(() => { onDoneRef.current = onDone }, [onDone])
+
+  // Reset on mount (slide change)
+  useEffect(() => {
+    doneRef.current = 0
+    advancedRef.current = false
+  }, [])
+
+  const handleColDone = useCallback(() => {
+    doneRef.current += 1
+    if (doneRef.current >= numCols && !advancedRef.current) {
+      advancedRef.current = true
+      // Brief pause showing top entries before advancing
+      setTimeout(() => onDoneRef.current?.(), 2000)
+    }
+  }, [numCols])
+
+  // Fallback: if ranking is empty, advance quickly
+  useEffect(() => {
+    if (ranking.length === 0) {
+      const t = setTimeout(() => {
+        if (!advancedRef.current) {
+          advancedRef.current = true
+          onDoneRef.current?.()
+        }
+      }, 4000)
+      return () => clearTimeout(t)
+    }
+  }, [ranking.length])
+
   return (
     <motion.div key={`results-${modId}`}
       initial={{ opacity: 0, x: 60 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -60 }}
@@ -220,14 +269,19 @@ function ResultsSlide({ modId, ranking }) {
         ) : m.cats ? (
           <div className="flex gap-4 h-full">
             {['elementary','junior','senior'].map(cat => (
-              <CatColumn key={cat} cat={cat} entries={ranking.filter(e => e.category === cat)} />
+              <CatColumn
+                key={cat}
+                cat={cat}
+                entries={ranking.filter(e => e.category === cat)}
+                onScrollDone={handleColDone}
+              />
             ))}
           </div>
         ) : (
           /* Single scrolling list for FE / RSP */
           (() => {
             const scroll = ranking.length > 7
-            const scrollDur = Math.max(14, ranking.length * 2)
+            const scrollDur = Math.max(22, ranking.length * ROW_SPEED)
             return (
               <div className="max-w-2xl mx-auto h-full overflow-hidden relative"
                 style={{
@@ -237,8 +291,10 @@ function ResultsSlide({ modId, ranking }) {
               >
                 {scroll ? (
                   <motion.div className="space-y-2"
-                    animate={{ y: ['0%', '-50%'] }}
-                    transition={{ duration: scrollDur, ease: 'linear', repeat: Infinity }}
+                    initial={{ y: '0%' }}
+                    animate={{ y: '-50%' }}
+                    transition={{ duration: scrollDur, ease: 'linear' }}
+                    onAnimationComplete={handleColDone}
                   >
                     {ranking.map((e, i) => <EntryRow key={e.teamId+'-a'} entry={e} idx={i} hex={m.color} noAnim />)}
                     {ranking.map((e, i) => <EntryRow key={e.teamId+'-b'} entry={e} idx={i} hex={m.color} noAnim />)}
@@ -264,6 +320,7 @@ export default function DisplayScreen() {
   const [valid, setValid]       = useState(null)
   const [results, setResults]   = useState({})
   const [slideIdx, setSlideIdx] = useState(0)
+  const advancedRef = useRef(false)
 
   useEffect(() => {
     getDoc(doc(db, 'settings', 'display'))
@@ -281,14 +338,28 @@ export default function DisplayScreen() {
     return () => unsubs.forEach(u => u())
   }, [valid])
 
+  const advanceSlide = useCallback(() => {
+    if (advancedRef.current) return
+    advancedRef.current = true
+    setSlideIdx(i => (i + 1) % SLIDES.length)
+  }, [])
+
   useEffect(() => {
     if (!valid) return
-    const tid = setTimeout(
-      () => setSlideIdx(i => (i + 1) % SLIDES.length),
-      SLIDES[slideIdx].dur
-    )
+    advancedRef.current = false  // reset guard on each new slide
+    const slide = SLIDES[slideIdx]
+
+    if (slide.type === 'results') {
+      // Advance via scroll-complete callback (ResultsSlide calls advanceSlide via onDone)
+      // Safety fallback: never stuck more than 120 seconds
+      const fallback = setTimeout(advanceSlide, 120000)
+      return () => clearTimeout(fallback)
+    }
+
+    // Intro / title slides: fixed timer
+    const tid = setTimeout(advanceSlide, slide.dur)
     return () => clearTimeout(tid)
-  }, [valid, slideIdx])
+  }, [valid, slideIdx, advanceSlide])
 
   if (valid === null) return (
     <div className="min-h-screen flex items-center justify-center" style={{ background: '#080808' }}>
@@ -308,7 +379,12 @@ export default function DisplayScreen() {
         {slide.type === 'intro'   && <IntroSlide key="intro" />}
         {slide.type === 'title'   && <TitleSlide key={`t-${slide.mod}`} modId={slide.mod} />}
         {slide.type === 'results' && (
-          <ResultsSlide key={`r-${slide.mod}`} modId={slide.mod} ranking={results[slide.mod] || []} />
+          <ResultsSlide
+            key={`r-${slide.mod}`}
+            modId={slide.mod}
+            ranking={results[slide.mod] || []}
+            onDone={advanceSlide}
+          />
         )}
       </AnimatePresence>
 
@@ -318,7 +394,7 @@ export default function DisplayScreen() {
         <p className="text-xs text-gray-600">WRO El Salvador 2026 · Sistema Oficial</p>
         <div className="flex gap-1.5 items-center">
           {SLIDES.map((s, i) => (
-            <button key={i} onClick={() => setSlideIdx(i)} style={{
+            <button key={i} onClick={() => { advancedRef.current = false; setSlideIdx(i) }} style={{
               width: i === slideIdx ? '24px' : '8px', height: '8px',
               borderRadius: '9999px', border: 'none', cursor: 'pointer',
               backgroundColor: s.mod ? MOD_CFG[s.mod]?.color : '#f97316',

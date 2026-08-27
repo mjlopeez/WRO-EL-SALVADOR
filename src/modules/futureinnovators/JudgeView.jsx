@@ -99,32 +99,62 @@ function ScoreSummary({ team, category, savedData }) {
 function TeamInfoCard({ team, category }) {
   const cc = CC[category] || CC.elementary
   const catMeta = CATEGORY_META[category] || CATEGORY_META.elementary
+  const { profile } = useAuth()
   const members = [team.member1, team.member2, team.member3].filter(Boolean)
+  const tableComp = team.tableComp || profile?.tableComp || '—'
   return (
-    <div className="card bg-dark-700 mb-4">
-      <div className="flex items-start gap-3">
-        <div className={`w-12 h-10 rounded-xl ${cc.bg} border ${cc.border} flex items-center justify-center font-bold shrink-0 ${cc.text} text-xs px-1 text-center leading-tight`}>
-          {team.number || team.name?.[0]?.toUpperCase()}
+    <div className={`card bg-dark-700 border ${cc.border} mb-4`}>
+      {/* Top: correlativo + category badge */}
+      <div className="flex items-start justify-between mb-3">
+        <div>
+          <p className="text-gray-500 text-[10px] uppercase tracking-wider mb-0.5">Correlativo</p>
+          <p className={`font-extrabold font-mono text-3xl leading-none ${cc.text}`}>
+            {team.correlativo || '—'}
+          </p>
         </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <p className="font-bold text-white">{team.name}</p>
-            {team.number && <span className="text-xs text-gray-500">#{team.number}</span>}
-            <span className={`text-xs px-2 py-0.5 rounded-full border capitalize ${cc.bg} ${cc.border} ${cc.text}`}>{catMeta.label}</span>
-          </div>
-          {team.school && <p className="text-xs text-gray-500 mt-0.5 truncate">{team.school}</p>}
-          {members.length > 0 && (
-            <div className="flex flex-wrap gap-1 mt-1.5">
-              {members.map((m, i) => (
-                <span key={i} className="text-xs px-2 py-0.5 rounded-full bg-dark-600 border border-dark-500 text-gray-300">{m}</span>
-              ))}
-              {team.coach && (
-                <span className={`text-xs px-2 py-0.5 rounded-full ${cc.bg} border ${cc.border} ${cc.text}`}>{team.coach}</span>
-              )}
-            </div>
-          )}
-        </div>
+        <span className={`text-xs font-bold px-3 py-1 rounded-full border ${cc.bg} ${cc.border} ${cc.text}`}>
+          {catMeta.label}
+        </span>
       </div>
+
+      {/* Team name */}
+      <p className="font-extrabold text-white text-xl break-words mb-3 leading-tight">{team.name}</p>
+
+      {/* Grid details */}
+      <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm mb-3">
+        <div>
+          <p className="text-gray-500 text-[10px] uppercase tracking-wider mb-0.5">Mesa construcción</p>
+          <p className="text-white font-bold font-mono text-base">{team.number || '—'}</p>
+        </div>
+        <div>
+          <p className="text-gray-500 text-[10px] uppercase tracking-wider mb-0.5">Mesa competencia</p>
+          <p className={`font-bold font-mono text-base ${cc.text}`}>{tableComp}</p>
+        </div>
+        {team.coach && (
+          <div className="col-span-2">
+            <p className="text-gray-500 text-[10px] uppercase tracking-wider mb-0.5">Coach</p>
+            <p className="text-white font-medium break-words">{team.coach}</p>
+          </div>
+        )}
+        {team.school && (
+          <div className="col-span-2">
+            <p className="text-gray-500 text-[10px] uppercase tracking-wider mb-0.5">Institución</p>
+            <p className="text-gray-300 break-words">{team.school}</p>
+          </div>
+        )}
+      </div>
+
+      {/* Members */}
+      {members.length > 0 && (
+        <div>
+          <p className="text-gray-500 text-[10px] uppercase tracking-wider mb-1.5">Integrantes</p>
+          <div className="flex flex-wrap gap-1.5">
+            {members.map((m, i) => (
+              <span key={i} className={`text-xs px-2.5 py-1 rounded-full border ${cc.bg} ${cc.border} ${cc.text} font-medium break-words`}>{m}</span>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -248,6 +278,7 @@ export default function FIJudgeView() {
   const [loading, setLoading]   = useState(true)
   const [selected, setSelected] = useState(null)
   const [activeTab, setActiveTab] = useState('teams')
+  const [showResources, setShowResources] = useState(false)
 
   // Load fi_teams asignados a este juez (filtra por assignedJudgeUids que incluya user.uid)
   useEffect(() => {
@@ -306,11 +337,44 @@ export default function FIJudgeView() {
         </div>
         <div className="flex items-center gap-2">
           <p className="text-xs text-gray-500 hidden sm:block">{profile?.name}</p>
+          <button onClick={() => setShowResources(true)}
+            className="text-gray-500 hover:text-violet-400 transition-colors p-2" title="Recursos">
+            <BookOpen size={16} />
+          </button>
           <button onClick={logout} className="text-gray-500 hover:text-red-400 transition-colors p-2">
             <LogOut size={16} />
           </button>
         </div>
       </div>
+
+      {/* Resources modal */}
+      {showResources && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={() => setShowResources(false)}>
+          <div className="card max-w-sm w-full bg-dark-800 border-violet-500/30 space-y-3" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <p className="font-bold text-white flex items-center gap-2"><BookOpen size={16} className="text-violet-400" /> Recursos</p>
+              <button onClick={() => setShowResources(false)} className="text-gray-500 hover:text-white p-1"><X size={16} /></button>
+            </div>
+            {RESOURCES.map((r, i) => (
+              <a key={i} href={r.url} target="_blank" rel="noopener noreferrer"
+                className="flex items-start gap-3 p-3 rounded-xl bg-dark-700 border border-dark-600 hover:border-violet-500/30 transition-colors">
+                <span className="text-xl shrink-0">{r.icon}</span>
+                <div>
+                  <p className="text-sm font-semibold text-white">{r.label}</p>
+                  <p className="text-xs text-gray-500 mt-0.5">{r.description}</p>
+                </div>
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Encargado banner */}
+      {profile?.encargado && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-xl mb-4 bg-violet-500/10 border border-violet-500/20">
+          <p className="text-xs text-gray-400">Encargado: <span className="text-violet-400 font-semibold">{profile.encargado}</span></p>
+        </div>
+      )}
 
       {/* Assigned teams banner */}
       {!loading && myTeams.length > 0 && (
@@ -395,10 +459,10 @@ export default function FIJudgeView() {
                       {team.number || team.name?.[0]?.toUpperCase()}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-white text-sm truncate">{team.name}</p>
-                      {team.school && <p className="text-xs text-gray-500 truncate">{team.school}</p>}
+                      <p className="font-semibold text-white text-sm break-words">{team.name}</p>
+                      {team.school && <p className="text-xs text-gray-500 break-words">{team.school}</p>}
                       {(team.member1 || team.members) && (
-                        <p className="text-xs text-gray-600 truncate">
+                        <p className="text-xs text-gray-600 break-words">
                           {[team.member1, team.member2, team.member3].filter(Boolean).join(' · ') || team.members}
                         </p>
                       )}

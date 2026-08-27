@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { LogOut, Trophy, ChevronRight, Bot, ArrowLeft, BookOpen, ExternalLink, Search, X, CheckCircle2, BarChart2, Building2, AlertTriangle, Lock } from 'lucide-react'
-import { collection, onSnapshot, doc, getDoc } from 'firebase/firestore'
+import { collection, onSnapshot, doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '../../firebase'
 import { useAuth } from '../../contexts/AuthContext'
 import ScoreSheet from './ScoreSheet'
@@ -124,6 +124,12 @@ export default function JudgeView() {
           <div>
             <p className="text-xl font-bold text-white">{profile?.name}</p>
             <p className="text-sm text-gray-400">{profile?.email}</p>
+            {profile?.encargado && (
+              <p className="text-xs font-semibold text-teal-400 mt-0.5">Encargado: {profile.encargado}</p>
+            )}
+            {profile?.tableComp && (
+              <p className="text-xs text-gray-400 mt-0.5">Mesa de competencia: <span className={`font-mono font-bold text-${config.color}`}>{profile.tableComp}</span></p>
+            )}
             <p className="text-sm text-gray-400 mt-0.5">
               {config.label} · {config.ages} · {config.theme_desc}
             </p>
@@ -184,11 +190,11 @@ export default function JudgeView() {
               >
                 <div className="flex items-center gap-4">
                   <div className={`w-12 h-12 rounded-xl bg-${config.color}/15 flex items-center justify-center font-bold text-lg text-${config.color} shrink-0`}>
-                    {team.number || team.name?.[0]?.toUpperCase()}
+                    {team.correlativo || team.name?.[0]?.toUpperCase()}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-white text-base">{team.name}</p>
-                    <p className="text-sm text-gray-400 truncate">
+                    <p className="font-semibold text-white text-base break-words">{team.name}</p>
+                    <p className="text-sm text-gray-400 break-words">
                       {members.length > 0 ? members.join(' · ') : 'Sin integrantes'}
                     </p>
                     {team.school && (
@@ -279,7 +285,38 @@ function TeamScoring({ team, config, category, judgeUid, profile, onBack, onLogo
   const [savedFlags, setSavedFlags]   = useState({})
   const [showSummary, setShowSummary] = useState(false)
   const [showDirtyExit, setShowDirtyExit] = useState(false)
+  const [hasTechSummary, setHasTechSummary] = useState(false)
+  const [savingTech, setSavingTech]         = useState(false)
+  const [showTechConfirm, setShowTechConfirm] = useState(false)
   const members = [team.member1, team.member2, team.member3].filter(Boolean)
+
+  // Load technicalSummary from rm_scores on mount
+  useEffect(() => {
+    getDoc(doc(db, 'rm_scores', `${team.id}_techsummary`)).then(snap => {
+      if (snap.exists()) setHasTechSummary(snap.data().technicalSummary === true)
+    })
+  }, [team.id])
+
+  const handleConfirmTechSummary = async () => {
+    setShowTechConfirm(false)
+    setSavingTech(true)
+    try {
+      await setDoc(doc(db, 'rm_scores', `${team.id}_techsummary`), {
+        teamId:           team.id,
+        teamName:         team.name || '',
+        type:             'techsummary',
+        technicalSummary: true,
+        confirmedAt:      serverTimestamp(),
+        judgeUid:         judgeUid,
+        judgeName:        profile?.name || '',
+      })
+      setHasTechSummary(true)
+    } catch (e) {
+      console.error('Error guardando Technical Summary:', e)
+    } finally {
+      setSavingTech(false)
+    }
+  }
 
   const loadTotals = () => {
     Promise.all(
@@ -331,31 +368,54 @@ function TeamScoring({ team, config, category, judgeUid, profile, onBack, onLogo
 
       {/* Team info card */}
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-        className={`card border-${config.color}/20 mb-6`}>
-        <div className="grid grid-cols-2 gap-3 text-sm">
+        className={`card border-${config.color}/30 bg-dark-700 mb-6`}>
+        {/* Top: correlativo + category badge */}
+        <div className="flex items-start justify-between mb-3">
           <div>
-            <p className="text-gray-500 text-xs mb-0.5">Número de equipo</p>
-            <p className={`font-bold font-mono text-${config.color}`}>{team.number || '—'}</p>
+            <p className="text-gray-500 text-[10px] uppercase tracking-wider mb-0.5">Correlativo</p>
+            <p className={`font-extrabold font-mono text-3xl leading-none text-${config.color}`}>
+              {team.correlativo || '—'}
+            </p>
+          </div>
+          <span className={`badge-${config.color} text-xs font-bold`}>{config.label}</span>
+        </div>
+
+        {/* Team name */}
+        <p className="font-extrabold text-white text-xl break-words mb-3 leading-tight">{team.name}</p>
+
+        {/* Grid details */}
+        <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm mb-3">
+          <div>
+            <p className="text-gray-500 text-[10px] uppercase tracking-wider mb-0.5">Mesa construcción</p>
+            <p className="text-white font-bold font-mono text-base">{team.number || '—'}</p>
           </div>
           <div>
-            <p className="text-gray-500 text-xs mb-0.5">Categoría</p>
-            <span className={`badge-${config.color}`}>{config.label}</span>
+            <p className="text-gray-500 text-[10px] uppercase tracking-wider mb-0.5">Mesa competencia</p>
+            <p className={`font-bold font-mono text-base text-${config.color}`}>{team.tableComp || profile?.tableComp || '—'}</p>
           </div>
-          <div>
-            <p className="text-gray-500 text-xs mb-0.5">Coach</p>
-            <p className="text-white font-medium">{team.coach || '—'}</p>
+          <div className="col-span-2">
+            <p className="text-gray-500 text-[10px] uppercase tracking-wider mb-0.5">Coach</p>
+            <p className="text-white font-medium break-words">{team.coach || '—'}</p>
           </div>
-          <div>
-            <p className="text-gray-500 text-xs mb-0.5">Ciudad</p>
-            <p className="text-gray-300">{team.city || '—'}</p>
-          </div>
-          {members.length > 0 && (
+          {team.school && (
             <div className="col-span-2">
-              <p className="text-gray-500 text-xs mb-0.5">Integrantes</p>
-              <p className="text-white">{members.join(', ')}</p>
+              <p className="text-gray-500 text-[10px] uppercase tracking-wider mb-0.5">Institución</p>
+              <p className="text-gray-300 break-words">{team.school}{team.city && ` · ${team.city}`}</p>
             </div>
           )}
         </div>
+
+        {/* Members */}
+        {members.length > 0 && (
+          <div>
+            <p className="text-gray-500 text-[10px] uppercase tracking-wider mb-1.5">Integrantes</p>
+            <div className="flex flex-wrap gap-1.5">
+              {members.map((m, i) => (
+                <span key={i} className={`text-xs px-2.5 py-1 rounded-full border bg-${config.color}/10 border-${config.color}/30 text-${config.color} font-medium break-words`}>{m}</span>
+              ))}
+            </div>
+          </div>
+        )}
       </motion.div>
 
       {/* DirtyExit dialog */}
@@ -365,6 +425,74 @@ function TeamScoring({ team, config, category, judgeUid, profile, onBack, onLogo
           onCancel={() => setShowDirtyExit(false)}
         />
       )}
+
+      {/* Technical Summary */}
+      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+        className={`card mb-4 flex items-center justify-between gap-4 border ${
+          hasTechSummary ? 'border-green-500/30 bg-green-500/5' : 'border-yellow-500/30 bg-yellow-500/5'
+        }`}>
+        <div className="flex-1 min-w-0">
+          <p className="font-semibold text-white text-sm">Technical Summary</p>
+          <p className={`text-xs mt-0.5 ${hasTechSummary ? 'text-green-400' : 'text-yellow-400'}`}>
+            {hasTechSummary
+              ? '✓ Entregado — puntaje completo'
+              : '✗ No entregado — se restará 10% del total de rondas'}
+          </p>
+        </div>
+        {hasTechSummary ? (
+          /* Bloqueado — confirmado, no se puede deshacer */
+          <div className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-green-500/10 border border-green-500/30">
+            <CheckCircle2 size={14} className="text-green-400" />
+            <span className="text-xs font-semibold text-green-400">Confirmado</span>
+          </div>
+        ) : (
+          <button
+            onClick={() => setShowTechConfirm(true)}
+            disabled={savingTech}
+            title="Confirmar entrega del Technical Summary"
+            className={`relative w-12 h-6 rounded-full transition-all duration-300 shrink-0 disabled:opacity-50 bg-dark-500 border border-yellow-500/40`}
+          >
+            {savingTech
+              ? <span className="absolute inset-0 flex items-center justify-center"><span className="w-3 h-3 border-2 border-yellow-400/30 border-t-yellow-400 rounded-full animate-spin" /></span>
+              : <span className="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-all duration-300" />
+            }
+          </button>
+        )}
+      </motion.div>
+
+      {/* Confirmation dialog */}
+      <AnimatePresence>
+        {showTechConfirm && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+              className="card max-w-sm w-full border-green-500/30 bg-dark-800">
+              <div className="text-center mb-5">
+                <div className="w-12 h-12 rounded-2xl bg-green-500/10 border border-green-500/20 flex items-center justify-center mx-auto mb-3">
+                  <CheckCircle2 size={24} className="text-green-400" />
+                </div>
+                <p className="font-bold text-white text-lg">Confirmar Technical Summary</p>
+                <p className="text-sm text-gray-400 mt-2">
+                  ¿El equipo <span className="text-white font-semibold">{team.name}</span> entregó su Technical Summary?
+                </p>
+                <p className="text-xs text-yellow-400 mt-3 px-2">
+                  ⚠️ Esta acción no se puede deshacer desde este panel.
+                </p>
+              </div>
+              <div className="flex gap-3">
+                <button onClick={() => setShowTechConfirm(false)}
+                  className="flex-1 py-2.5 rounded-xl font-bold text-sm border border-dark-500 text-gray-300 hover:text-white hover:border-gray-400 transition-all">
+                  Cancelar
+                </button>
+                <button onClick={handleConfirmTechSummary}
+                  className="flex-1 py-2.5 rounded-xl font-bold text-sm bg-green-500/20 border border-green-500/50 text-green-400 hover:bg-green-500/30 transition-all flex items-center justify-center gap-2">
+                  <CheckCircle2 size={15} /> Confirmar entrega
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Round tabs + summary toggle */}
       <div className="flex gap-2 mb-5">
@@ -436,22 +564,39 @@ function TeamScoring({ team, config, category, judgeUid, profile, onBack, onLogo
                   )
                 })}
               </div>
-              <div className="mt-5 pt-4 border-t border-dark-600 space-y-2">
-                <div className="flex justify-between items-center">
-                  <span className="text-gray-400 font-medium">Suma total</span>
-                  <span className={`font-mono font-extrabold text-2xl text-${config.color}`}>
-                    {ROUNDS.reduce((acc, r) => acc + (savedTotals[r] ?? 0), 0)}
-                    <span className="text-sm text-gray-500 font-normal ml-1">pts</span>
-                  </span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-gray-500 text-sm">Mejor ronda</span>
-                  <span className={`font-mono font-bold text-lg text-${config.color} opacity-75`}>
-                    {Math.max(...ROUNDS.map(r => savedTotals[r] ?? 0))}
-                    <span className="text-sm text-gray-500 font-normal ml-1">pts</span>
-                  </span>
-                </div>
-              </div>
+              {(() => {
+                const rawSum = ROUNDS.reduce((acc, r) => acc + (savedTotals[r] ?? 0), 0)
+                const finalSum = hasTechSummary ? rawSum : Math.round(rawSum * 0.9)
+                return (
+                  <div className="mt-5 pt-4 border-t border-dark-600 space-y-2">
+                    {!hasTechSummary && (
+                      <div className="flex justify-between items-center text-sm">
+                        <span className="text-gray-500">Suma bruta</span>
+                        <span className="font-mono text-gray-500 line-through">{rawSum} pts</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <span className="text-gray-400 font-medium">Suma total</span>
+                        {!hasTechSummary && (
+                          <span className="ml-2 text-xs px-1.5 py-0.5 rounded-full bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">−10% sin Technical Summary</span>
+                        )}
+                      </div>
+                      <span className={`font-mono font-extrabold text-2xl ${hasTechSummary ? `text-${config.color}` : 'text-yellow-400'}`}>
+                        {finalSum}
+                        <span className="text-sm text-gray-500 font-normal ml-1">pts</span>
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-500 text-sm">Mejor ronda</span>
+                      <span className={`font-mono font-bold text-lg text-${config.color} opacity-75`}>
+                        {Math.max(...ROUNDS.map(r => savedTotals[r] ?? 0))}
+                        <span className="text-sm text-gray-500 font-normal ml-1">pts</span>
+                      </span>
+                    </div>
+                  </div>
+                )
+              })()}
             </div>
             <p className="text-center text-xs text-gray-600">Las 3 rondas han sido registradas correctamente.</p>
           </motion.div>

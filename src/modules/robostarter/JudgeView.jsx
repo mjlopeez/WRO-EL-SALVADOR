@@ -1,22 +1,23 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Search, X, Users, LogOut, ChevronRight, BarChart2, CheckCircle2, AlertTriangle, Lock } from 'lucide-react'
+import { Search, X, Users, LogOut, ChevronRight, BarChart2, CheckCircle2, AlertTriangle, Lock, BookOpen } from 'lucide-react'
 import { collection, onSnapshot, doc, getDoc } from 'firebase/firestore'
 import { db } from '../../firebase'
 import { useAuth } from '../../contexts/AuthContext'
 import ScoreSheet from './ScoreSheet'
-import { ROUNDS, MISSION_MAX, DOC_MAX, CATEGORY_META } from './config'
+import { ROUNDS, FIRMAS_MAX, JUNIOR_MISSION_MAX, CATEGORY_META, RESOURCES } from './config'
 
 const catColors = {
   elementary: { bg: 'bg-green-500/10',  border: 'border-green-500/30',  text: 'text-green-400',  solid: 'bg-green-500'  },
   junior:     { bg: 'bg-lime-500/10',   border: 'border-lime-500/30',   text: 'text-lime-400',   solid: 'bg-lime-500'   },
 }
 
-const TOTAL_MAX = MISSION_MAX + DOC_MAX  // 300
-
 // Summary after all rounds saved
 function SummaryView({ team, category, savedData }) {
-  const cc = catColors[category] || catColors.elementary
+  const cc        = catColors[category] || catColors.elementary
+  const isJunior  = category === 'junior'
+  const roundMax  = isJunior ? JUNIOR_MISSION_MAX : FIRMAS_MAX
+
   const bestMission = Math.max(...ROUNDS.map(r => savedData[r]?.missionScore ?? 0))
   const sumTotal    = ROUNDS.reduce((acc, r) => acc + (savedData[r]?.total ?? 0), 0)
   const bestTotal   = Math.max(...ROUNDS.map(r => savedData[r]?.total ?? 0))
@@ -31,14 +32,13 @@ function SummaryView({ team, category, savedData }) {
           {ROUNDS.map(r => {
             const d = savedData[r]
             if (!d) return null
-            const pct = Math.round((d.total / TOTAL_MAX) * 100)
+            const pct = Math.round((d.total / roundMax) * 100)
             return (
               <div key={r}>
                 <div className="flex justify-between items-center mb-1">
                   <span className="text-sm font-semibold text-white">Ronda {r}</span>
                   <div className="flex items-center gap-3 text-xs text-gray-500">
                     <span>Misión: <span className={cc.text}>{d.missionScore}</span></span>
-                    <span>Doc: <span className={cc.text}>{d.docTotal}</span></span>
                     <span className={`font-bold ${cc.text} text-sm`}>{d.total} pts</span>
                   </div>
                 </div>
@@ -57,10 +57,10 @@ function SummaryView({ team, category, savedData }) {
             <span className={`font-mono font-extrabold text-xl ${cc.text}`}>{sumTotal} pts</span>
           </div>
           <div className="flex justify-between text-xs text-gray-500">
-            <span>Mejor ronda individual</span><span className={cc.text}>{bestTotal}/{MISSION_MAX}</span>
+            <span>Mejor ronda individual</span><span className={cc.text}>{bestTotal}/{roundMax}</span>
           </div>
           <div className="flex justify-between text-xs text-gray-500">
-            <span>Mejor misión</span><span className={cc.text}>{bestMission}/{MISSION_MAX}</span>
+            <span>Mejor misión</span><span className={cc.text}>{bestMission}/{roundMax}</span>
           </div>
         </div>
       </div>
@@ -73,34 +73,60 @@ function SummaryView({ team, category, savedData }) {
 function TeamInfoCard({ team, category }) {
   const cc = catColors[category] || catColors.elementary
   const meta = CATEGORY_META[category] || {}
+  const { profile } = useAuth()
   const members = [team.member1, team.member2, team.member3].filter(Boolean)
+  const tableComp = team.tableComp || profile?.tableComp || '—'
   return (
-    <div className="card bg-dark-700 mb-4">
-      <div className="flex items-start gap-3">
-        <div className={`w-10 h-10 rounded-xl ${cc.bg} border ${cc.border} flex items-center justify-center font-bold shrink-0 ${cc.text} text-sm`}>
-          {team.number || team.name?.[0]?.toUpperCase()}
+    <div className={`card mb-4 border ${cc.border} bg-dark-700`}>
+      {/* Top row: correlativo + category */}
+      <div className="flex items-start justify-between mb-3">
+        <div>
+          <p className="text-gray-500 text-[10px] uppercase tracking-wider mb-0.5">Correlativo</p>
+          <p className={`font-extrabold font-mono text-3xl leading-none ${cc.text}`}>
+            {team.correlativo || '—'}
+          </p>
         </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <p className="font-bold text-white">{team.name}</p>
-            {team.number && <span className="text-xs text-gray-500">#{team.number}</span>}
-            <span className={`text-xs px-2 py-0.5 rounded-full border ${cc.bg} ${cc.border} ${cc.text}`}>
-              {meta.label || category}
-            </span>
-          </div>
-          {team.institution && <p className="text-xs text-gray-500 mt-0.5 truncate">{team.institution}</p>}
-          {members.length > 0 && (
-            <div className="flex flex-wrap gap-1 mt-1.5">
-              {members.map((m, i) => (
-                <span key={i} className="text-xs px-2 py-0.5 rounded-full bg-dark-600 border border-dark-500 text-gray-300">{m}</span>
-              ))}
-              {team.coach && (
-                <span className={`text-xs px-2 py-0.5 rounded-full ${cc.bg} border ${cc.border} ${cc.text}`}>{team.coach}</span>
-              )}
-            </div>
-          )}
-        </div>
+        <span className={`text-xs font-bold px-3 py-1 rounded-full border ${cc.bg} ${cc.border} ${cc.text}`}>
+          {meta.label || category}
+        </span>
       </div>
+
+      {/* Team name */}
+      <p className="font-extrabold text-white text-xl break-words mb-3 leading-tight">{team.name}</p>
+
+      {/* Grid details */}
+      <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm mb-3">
+        <div>
+          <p className="text-gray-500 text-[10px] uppercase tracking-wider mb-0.5">Mesa construcción</p>
+          <p className="text-white font-bold font-mono text-base">{team.number || '—'}</p>
+        </div>
+        <div>
+          <p className="text-gray-500 text-[10px] uppercase tracking-wider mb-0.5">Mesa competencia</p>
+          <p className={`font-bold font-mono text-base ${cc.text}`}>{tableComp}</p>
+        </div>
+        <div className="col-span-2">
+          <p className="text-gray-500 text-[10px] uppercase tracking-wider mb-0.5">Coach</p>
+          <p className="text-white font-medium break-words">{team.coach || '—'}</p>
+        </div>
+        {(team.institution || team.school) && (
+          <div className="col-span-2">
+            <p className="text-gray-500 text-[10px] uppercase tracking-wider mb-0.5">Institución</p>
+            <p className="text-gray-300 break-words">{team.institution || team.school}</p>
+          </div>
+        )}
+      </div>
+
+      {/* Members */}
+      {members.length > 0 && (
+        <div>
+          <p className="text-gray-500 text-[10px] uppercase tracking-wider mb-1.5">Integrantes</p>
+          <div className="flex flex-wrap gap-1.5">
+            {members.map((m, i) => (
+              <span key={i} className={`text-xs px-2.5 py-1 rounded-full border ${cc.bg} ${cc.border} ${cc.text} font-medium`}>{m}</span>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -228,6 +254,7 @@ export default function RSJudgeView() {
   const [search, setSearch]   = useState('')
   const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState(null)
+  const [showResources, setShowResources] = useState(false)
 
   useEffect(() => {
     return onSnapshot(collection(db, 'rs_teams'), snap => {
@@ -272,11 +299,49 @@ export default function RSJudgeView() {
         </div>
         <div className="flex items-center gap-2">
           <p className="text-xs text-gray-500 hidden sm:block">{profile?.name}</p>
+          <button onClick={() => setShowResources(true)}
+            className="text-gray-500 hover:text-green-400 transition-colors p-2" title="Recursos">
+            <BookOpen size={16} />
+          </button>
           <button onClick={logout} className="text-gray-500 hover:text-red-400 transition-colors p-2">
             <LogOut size={16} />
           </button>
         </div>
       </div>
+
+      {/* Resources modal */}
+      {showResources && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={() => setShowResources(false)}>
+          <div className="card max-w-sm w-full bg-dark-800 border-green-500/30 space-y-3" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <p className="font-bold text-white flex items-center gap-2"><BookOpen size={16} className="text-green-400" /> Recursos</p>
+              <button onClick={() => setShowResources(false)} className="text-gray-500 hover:text-white p-1"><X size={16} /></button>
+            </div>
+            {RESOURCES.map((r, i) => (
+              <a key={i} href={r.url} target="_blank" rel="noopener noreferrer"
+                className="flex items-start gap-3 p-3 rounded-xl bg-dark-700 border border-dark-600 hover:border-green-500/30 transition-colors">
+                <span className="text-xl shrink-0">{r.icon}</span>
+                <div>
+                  <p className="text-sm font-semibold text-white">{r.label}</p>
+                  <p className="text-xs text-gray-500 mt-0.5">{r.description}</p>
+                </div>
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Encargado / Mesa banner */}
+      {(profile?.encargado || profile?.tableComp) && (
+        <div className="flex items-center gap-3 px-3 py-2 rounded-xl mb-4 bg-green-500/10 border border-green-500/20 flex-wrap">
+          {profile?.encargado && (
+            <p className="text-xs text-gray-400">Encargado: <span className="text-green-400 font-semibold">{profile.encargado}</span></p>
+          )}
+          {profile?.tableComp && (
+            <p className="text-xs text-gray-400">Mesa de competencia: <span className={`font-mono font-bold ${cc.text}`}>{profile.tableComp}</span></p>
+          )}
+        </div>
+      )}
 
       {/* Search */}
       <div className="relative mb-4">
@@ -313,11 +378,11 @@ export default function RSJudgeView() {
               onClick={() => setSelected(team)}
               className="w-full card-hover text-left flex items-center gap-3">
               <div className={`w-10 h-10 rounded-xl ${cc.bg} border ${cc.border} flex items-center justify-center font-bold shrink-0 ${cc.text} text-sm`}>
-                {team.number || team.name?.[0]?.toUpperCase()}
+                {team.correlativo || team.name?.[0]?.toUpperCase()}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="font-semibold text-white text-sm truncate">{team.name}</p>
-                {team.institution && <p className="text-xs text-gray-500 truncate">{team.institution}</p>}
+                <p className="font-semibold text-white text-sm break-words">{team.name}</p>
+                {(team.institution || team.school) && <p className="text-xs text-gray-500 break-words">{team.institution || team.school}</p>}
               </div>
               <ChevronRight size={16} className="text-gray-600 shrink-0" />
             </motion.button>

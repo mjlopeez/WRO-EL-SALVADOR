@@ -7,6 +7,7 @@ import {
 import { collection, query, orderBy, onSnapshot, doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '../../firebase'
 import { useAuth } from '../../contexts/AuthContext'
+import { writeAuditLog } from '../../utils/auditLog'
 import {
   RESOURCES, RUBRIC, SCORE_OPTIONS,
   MAX_ABIERTO, MAX_OBSTACULOS, MAX_DIARIO, MAX_SCORE,
@@ -23,7 +24,8 @@ const DIARIO_DISABLED_TEAMS = ['compañe', 'autonova']
 
 // Elimina recursivamente cualquier campo con valor undefined (Firestore lo rechaza)
 function stripUndefined(obj) {
-  if (obj === null || typeof obj !== 'object' || Array.isArray(obj)) return obj
+  // Date instances have no enumerable properties — must pass through as-is
+  if (obj === null || typeof obj !== 'object' || Array.isArray(obj) || obj instanceof Date) return obj
   return Object.fromEntries(
     Object.entries(obj)
       .filter(([, v]) => v !== undefined)
@@ -215,15 +217,23 @@ function AbiertoCard({ num, data = {}, onChange, disabled }) {
           sublabel="1 pto por sección · máx 24"
           value={data.sections ?? 0} min={0} max={24}
           disabled={disabled}
-          onChange={v => onChange({ ...data, sections: v })}
+          onChange={v => {
+            const autoLaps = Math.min(3, Math.floor(v / 8))
+            onChange({
+              ...data,
+              sections: v,
+              laps: autoLaps,
+              stopAtFinish: autoLaps < 3 ? false : data.stopAtFinish,
+            })
+          }}
         />
-        <Stepper
-          label="Vueltas completadas"
-          sublabel="1 pto por vuelta · máx 3"
-          value={laps} min={0} max={3}
-          disabled={disabled}
-          onChange={v => onChange({ ...data, laps: v, stopAtFinish: v < 3 ? false : data.stopAtFinish })}
-        />
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium text-white">Vueltas completadas</p>
+            <p className="text-xs text-gray-500">1 pto por vuelta · calculado automático (cada 8 secciones)</p>
+          </div>
+          <span className="font-mono font-bold text-2xl text-teal-400 shrink-0">{laps}</span>
+        </div>
         <div className="h-px bg-dark-600" />
         <Toggle
           label="Paró en sección de llegada al completar 3 vueltas"
@@ -285,20 +295,25 @@ function ObstaculosCard({ num, data = {}, onChange, disabled }) {
           sublabel="1 pto por sección · máx 24"
           value={data.sections ?? 0} min={0} max={24}
           disabled={disabled}
-          onChange={v => onChange({ ...data, sections: v })}
+          onChange={v => {
+            const autoLaps = Math.min(3, Math.floor(v / 8))
+            onChange({
+              ...data,
+              sections: v,
+              laps: autoLaps,
+              stopAtFinish:       autoLaps < 3 ? false : data.stopAtFinish,
+              trafficSignsMoved:  autoLaps < 1 ? undefined : data.trafficSignsMoved,
+              startedFromParking: autoLaps < 1 ? false : data.startedFromParking,
+            })
+          }}
         />
-        <Stepper
-          label="Vueltas completadas"
-          sublabel="1 pto por vuelta · máx 3"
-          value={laps} min={0} max={3}
-          disabled={disabled}
-          onChange={v => onChange({
-            ...data, laps: v,
-            stopAtFinish:       v < 3 ? false : data.stopAtFinish,
-            trafficSignsMoved:  v < 1 ? undefined : data.trafficSignsMoved,
-            startedFromParking: v < 1 ? false : data.startedFromParking,
-          })}
-        />
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium text-white">Vueltas completadas</p>
+            <p className="text-xs text-gray-500">1 pto por vuelta · calculado automático (cada 8 secciones)</p>
+          </div>
+          <span className="font-mono font-bold text-2xl text-teal-400 shrink-0">{laps}</span>
+        </div>
         <Toggle
           label="Paró en sección de llegada al completar 3 vueltas"
           sublabel="+3 pts · requiere 3 vueltas"
@@ -418,11 +433,9 @@ function ScoreSummary({ data }) {
   const a1 = computeAbiertoTotal(data.abierto?.r1)
   const a2 = computeAbiertoTotal(data.abierto?.r2)
   const o1 = computeObstaculosTotal(data.obstaculos?.r1)
-  const o2 = computeObstaculosTotal(data.obstaculos?.r2)
   const d  = computeDiarioTotal(data.diario?.scores ?? {})
-  const bestA = Math.max(a1, a2)
-  const bestO = Math.max(o1, o2)
-  const grand = bestA + bestO + d
+  const sumA  = a1 + a2   // ranking: suma de ambas rondas
+  const grand = sumA + o1 + d
   const pct   = Math.round((grand / MAX_SCORE) * 100)
 
   return (
@@ -444,7 +457,7 @@ function ScoreSummary({ data }) {
 
       {/* Reto Abierto */}
       <div className="card">
-        <p className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-3">Reto Abierto (máx {MAX_ABIERTO})</p>
+        <p className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-3">Reto Abierto — suma R1+R2 (máx {MAX_ABIERTO * 2})</p>
         <div className="space-y-2">
           {[['Ronda 1', a1], ['Ronda 2', a2]].map(([label, score]) => (
             <div key={label} className="flex items-center gap-3">
@@ -454,25 +467,16 @@ function ScoreSummary({ data }) {
           ))}
         </div>
         <div className="mt-2 pt-2 border-t border-dark-600 flex justify-between items-center">
-          <span className="text-xs text-gray-500">⭐ Mejor ronda</span>
-          <span className="font-mono font-bold text-teal-400 text-lg">{bestA}</span>
+          <span className="text-xs text-gray-500">Σ Suma total</span>
+          <span className="font-mono font-bold text-teal-400 text-lg">{sumA}</span>
         </div>
       </div>
 
       {/* Reto Obstáculos */}
       <div className="card">
-        <p className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-3">Reto Obstáculos (máx {MAX_OBSTACULOS})</p>
-        <div className="space-y-2">
-          {[['Ronda 1', o1], ['Ronda 2', o2]].map(([label, score]) => (
-            <div key={label} className="flex items-center gap-3">
-              <span className="text-sm text-gray-400 flex-1">{label}</span>
-              <span className="font-mono font-bold text-white">{score}</span>
-            </div>
-          ))}
-        </div>
-        <div className="mt-2 pt-2 border-t border-dark-600 flex justify-between items-center">
-          <span className="text-xs text-gray-500">⭐ Mejor ronda</span>
-          <span className="font-mono font-bold text-teal-400 text-lg">{bestO}</span>
+        <div className="flex justify-between items-center">
+          <p className="text-sm text-gray-300">Reto Obstáculos (1 ronda, máx {MAX_OBSTACULOS})</p>
+          <span className="font-mono font-bold text-teal-400 text-lg">{o1}</span>
         </div>
       </div>
 
@@ -492,10 +496,10 @@ function ResourcesTab() {
   return (
     <div className="space-y-3">
       <div className="card bg-teal-500/10 border-teal-500/30">
-        <p className="text-xs font-bold uppercase tracking-wider text-teal-400 mb-3">Puntuación máxima: 122 pts</p>
+        <p className="text-xs font-bold uppercase tracking-wider text-teal-400 mb-3">Puntuación máxima: {MAX_SCORE} pts</p>
         {[
-          ['Reto Abierto (mejor ronda)', `0–${MAX_ABIERTO}`],
-          ['Reto Obstáculos (mejor ronda)', `0–${MAX_OBSTACULOS}`],
+          [`Reto Abierto (R1+R2, máx ${MAX_ABIERTO * 2})`, `0–${MAX_ABIERTO * 2}`],
+          [`Reto Obstáculos (1 ronda)`, `0–${MAX_OBSTACULOS}`],
           ['Diario de Ingeniería', `0–${MAX_DIARIO}`],
         ].map(([label, range]) => (
           <div key={label} className="flex justify-between items-center py-1.5 border-b border-dark-600 last:border-0">
@@ -533,32 +537,70 @@ function ResourcesTab() {
 
 // ─── Team info card ───────────────────────────────────────────────────────────
 function TeamInfoCard({ team }) {
+  const { profile } = useAuth()
+  const members = [team.member1, team.member2, team.member3].filter(Boolean)
+  const tableComp = team.tableComp || profile?.tableComp || '—'
   return (
-    <div className="card bg-dark-700 mb-4">
-      <div className="flex items-start gap-3">
-        <div className="w-10 h-10 rounded-xl bg-teal-500/15 border border-teal-500/30 flex items-center justify-center font-bold text-teal-400 shrink-0 text-sm">
-          {team.number || team.name?.[0]?.toUpperCase()}
+    <div className="card bg-dark-700 border border-teal-500/30 mb-4">
+      {/* Top: correlativo + category badge */}
+      <div className="flex items-start justify-between mb-3">
+        <div>
+          <p className="text-gray-500 text-[10px] uppercase tracking-wider mb-0.5">Correlativo</p>
+          <p className="font-extrabold font-mono text-3xl leading-none text-teal-400">
+            {team.correlativo || '—'}
+          </p>
         </div>
-        <div className="flex-1 min-w-0">
-          <p className="font-bold text-white truncate">{team.name}</p>
-          {team.number && <p className="text-xs text-gray-500">Equipo #{team.number}</p>}
-          {team.school && <p className="text-xs text-gray-500 truncate">{team.school}</p>}
-          <div className="mt-1.5 flex flex-wrap gap-1">
-            {[team.member1, team.member2, team.member3].filter(Boolean).map((m, i) => (
-              <span key={i} className="text-xs px-2 py-0.5 rounded-full bg-dark-600 border border-dark-500 text-gray-300">{m}</span>
-            ))}
-            {team.coach && (
-              <span className="text-xs px-2 py-0.5 rounded-full bg-teal-500/10 border border-teal-500/20 text-teal-400">{team.coach}</span>
-            )}
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-bold px-3 py-1 rounded-full border bg-teal-500/10 border-teal-500/30 text-teal-400">
+            Future Engineers
+          </span>
+          {team.githubUrl && (
+            <a href={team.githubUrl} target="_blank" rel="noopener noreferrer"
+              className="text-gray-500 hover:text-teal-400 transition-colors">
+              <ExternalLink size={15} />
+            </a>
+          )}
+        </div>
+      </div>
+
+      {/* Team name */}
+      <p className="font-extrabold text-white text-xl break-words mb-3 leading-tight">{team.name}</p>
+
+      {/* Grid details */}
+      <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm mb-3">
+        <div>
+          <p className="text-gray-500 text-[10px] uppercase tracking-wider mb-0.5">Mesa construcción</p>
+          <p className="text-white font-bold font-mono text-base">{team.number || '—'}</p>
+        </div>
+        <div>
+          <p className="text-gray-500 text-[10px] uppercase tracking-wider mb-0.5">Mesa competencia</p>
+          <p className="font-bold font-mono text-base text-teal-400">{tableComp}</p>
+        </div>
+        {team.coach && (
+          <div className="col-span-2">
+            <p className="text-gray-500 text-[10px] uppercase tracking-wider mb-0.5">Coach</p>
+            <p className="text-white font-medium break-words">{team.coach}</p>
           </div>
-        </div>
-        {team.githubUrl && (
-          <a href={team.githubUrl} target="_blank" rel="noopener noreferrer"
-            className="text-gray-500 hover:text-teal-400 transition-colors shrink-0">
-            <ExternalLink size={15} />
-          </a>
+        )}
+        {team.school && (
+          <div className="col-span-2">
+            <p className="text-gray-500 text-[10px] uppercase tracking-wider mb-0.5">Institución</p>
+            <p className="text-gray-300 break-words">{team.school}</p>
+          </div>
         )}
       </div>
+
+      {/* Members */}
+      {members.length > 0 && (
+        <div>
+          <p className="text-gray-500 text-[10px] uppercase tracking-wider mb-1.5">Integrantes</p>
+          <div className="flex flex-wrap gap-1.5">
+            {members.map((m, i) => (
+              <span key={i} className="text-xs px-2.5 py-1 rounded-full border bg-teal-500/10 border-teal-500/30 text-teal-400 font-medium break-words">{m}</span>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -622,6 +664,69 @@ function RoundButtons({ roundKey, isFinalized, saving, saved, onSave, onSubmit }
   )
 }
 
+// ─── Zero-score warning dialog ────────────────────────────────────────────────
+function ZeroScoreDialog({ onConfirm, onCancel }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+      <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+        className="card max-w-sm w-full border-yellow-500/40 bg-dark-800">
+        <div className="text-center mb-4">
+          <AlertTriangle size={36} className="text-yellow-400 mx-auto mb-2" />
+          <p className="font-bold text-white text-lg">Hay puntajes en cero</p>
+          <p className="text-sm text-gray-400 mt-1">
+            Uno o más puntajes están en <span className="text-yellow-400 font-semibold">0</span>.
+            ¿Deseas corregirlos o aceptar y enviar de todas formas?
+          </p>
+        </div>
+        <div className="flex gap-3">
+          <button onClick={onCancel}
+            className="flex-1 py-2.5 rounded-xl font-bold text-sm border border-dark-500 text-gray-300 hover:text-white hover:border-gray-400 transition-all">
+            Corregir
+          </button>
+          <button onClick={onConfirm}
+            className="flex-1 py-2.5 rounded-xl font-bold text-sm bg-yellow-500/20 border border-yellow-500/50 text-yellow-400 hover:bg-yellow-500/30 transition-all">
+            Aceptar y enviar
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  )
+}
+
+// ─── Dirty-state exit warning dialog ─────────────────────────────────────────
+function DirtyExitDialog({ onConfirm, onCancel }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+      <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+        className="card max-w-sm w-full border-orange-500/40 bg-dark-800">
+        <div className="text-center mb-4">
+          <AlertTriangle size={36} className="text-orange-400 mx-auto mb-2" />
+          <p className="font-bold text-white text-lg">Calificación no enviada</p>
+          <p className="text-sm text-gray-400 mt-1">
+            Guardaste un borrador pero <span className="text-orange-400 font-semibold">no lo has enviado</span>.
+            Si sales ahora, los datos quedarán como borrador sin finalizar.
+          </p>
+        </div>
+        <div className="flex gap-3">
+          <button onClick={onCancel}
+            className="flex-1 py-2.5 rounded-xl font-bold text-sm border border-dark-500 text-gray-300 hover:text-white hover:border-gray-400 transition-all">
+            Seguir editando
+          </button>
+          <button onClick={onConfirm}
+            className="flex-1 py-2.5 rounded-xl font-bold text-sm bg-orange-500/20 border border-orange-500/50 text-orange-400 hover:bg-orange-500/30 transition-all">
+            Salir sin enviar
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  )
+}
+
+// ─── Zero-score helpers ───────────────────────────────────────────────────────
+function hasZeroInAbierto(data = {}) { return computeAbiertoTotal(data) === 0 }
+function hasZeroInObstaculos(data = {}) { return computeObstaculosTotal(data) === 0 }
+function hasZeroInDiario(scores = {}) { return RUBRIC.some(c => (scores[c.id] ?? 0) === 0) }
+
 // ─── TeamScoring ──────────────────────────────────────────────────────────────
 const SECTION_TABS = [
   { id: 'abierto',    label: '🟢 Abierto'    },
@@ -631,21 +736,24 @@ const SECTION_TABS = [
 ]
 
 function TeamScoring({ team, onClose }) {
-  const { user } = useAuth()
+  const { user, profile } = useAuth()
   const scoreDocId = `${team.id}_${user.uid}`
   const diarioDisabled = DIARIO_DISABLED_TEAMS.some(n => team?.name?.toLowerCase().includes(n))
 
   const [abierto,    setAbierto]    = useState({ r1: {}, r2: {} })
-  const [obstaculos, setObstaculos] = useState({ r1: {}, r2: {} })
+  const [obstaculos, setObstaculos] = useState({ r1: {} })
   const [diario,     setDiario]     = useState({ scores: {} })
 
   const [tab,        setTab]        = useState('abierto')
-  // saving / saved = string key like 'abierto_r1' | 'obstaculos_r2' | 'diario' | null
+  // saving / saved = string key like 'abierto_r1' | 'obstaculos_r1' | 'diario' | null
   const [saving,     setSaving]     = useState(null)
   const [saved,      setSaved]      = useState(null)
   const [hasData,    setHasData]    = useState(false)
-  // showConfirm = { section, round, label } | null
-  const [showConfirm, setShowConfirm] = useState(null)
+  const [isDirty,    setIsDirty]    = useState(false) // draft saved but not all submitted
+  // showConfirm = { label, onConfirm } | null
+  const [showConfirm,   setShowConfirm]   = useState(null)
+  const [showZeroAlert, setShowZeroAlert] = useState(null) // { onConfirm } | null
+  const [showDirtyExit, setShowDirtyExit] = useState(false)
 
   // Load saved data (including per-round finalized flags inside round objects)
   useEffect(() => {
@@ -661,15 +769,19 @@ function TeamScoring({ team, onClose }) {
 
   // Build full Firestore payload using given round/diario data
   const buildPayload = (ab, ob, di) => {
-    const allFinalized =
-      ab.r1?.finalized && ab.r2?.finalized &&
-      ob.r1?.finalized && ob.r2?.finalized &&
-      di.finalized
+    // Una ronda bloquea la finalización solo si fue INICIADA (sections existe) y no fue enviada
+    const roundOk = (r) => r?.sections === undefined || !!r?.finalized
+    // Diario bloquea solo si fue INICIADO (hay algún score) y no fue enviado
+    const diarioStarted = Object.keys((di?.scores ?? {})).length > 0
+    const diarioOk = diarioDisabled || !diarioStarted || !!di.finalized
+    const allFinalized = roundOk(ab.r1) && roundOk(ab.r2) && roundOk(ob.r1) && diarioOk
     const data = stripUndefined({
       teamId: team.id, abierto: ab, obstaculos: ob, diario: di,
-      judgeUid: user.uid,
-      finalized: !!allFinalized,
-      updatedAt: serverTimestamp(),
+      judgeUid:   user.uid,
+      judgeName:  profile?.name || user.email || '',
+      finalized:  !!allFinalized,
+      savedAt:    serverTimestamp(),
+      updatedAt:  serverTimestamp(),
     })
     data.grandTotal = computeGrandTotal(data)
     return data
@@ -679,9 +791,12 @@ function TeamScoring({ team, onClose }) {
   const doSave = async (key, ab, ob, di) => {
     setSaving(key)
     try {
-      await setDoc(doc(db, 'fe_scores', scoreDocId), buildPayload(ab, ob, di), { merge: true })
+      const payload = buildPayload(ab, ob, di)
+      await setDoc(doc(db, 'fe_scores', scoreDocId), payload, { merge: true })
       setSaved(key)
       setHasData(true)
+      // isDirty = false once everything is finalized, true otherwise
+      setIsDirty(!payload.finalized)
       setTimeout(() => setSaved(null), 3000)
     } catch (err) {
       console.error('FE save error:', err)
@@ -692,32 +807,114 @@ function TeamScoring({ team, onClose }) {
 
   // ── Per-round handlers ──────────────────────────────────────────────────────
   const handleSaveRound = (section, round) => {
-    const key = `${section}_${round}`
-    doSave(key, abierto, obstaculos, diario)
+    const data = section === 'abierto' ? abierto[round] : obstaculos[round]
+    const hasZero = section === 'abierto' ? hasZeroInAbierto(data) : hasZeroInObstaculos(data)
+    const doIt = () => {
+      const key = `${section}_${round}`
+      const now = new Date()
+      let newAb = abierto, newOb = obstaculos
+      if (section === 'abierto') {
+        newAb = { ...abierto, [round]: { ...abierto[round], savedAt: now } }
+        setAbierto(newAb)
+      } else {
+        newOb = { ...obstaculos, [round]: { ...obstaculos[round], savedAt: now } }
+        setObstaculos(newOb)
+      }
+      doSave(key, newAb, newOb, diario)
+      writeAuditLog({
+        action: 'save_draft', module: 'fe',
+        actor:  { uid: user.uid, name: profile?.name || user.email, role: 'judge' },
+        team:   { id: team.id, name: team.name, number: team.number || '' },
+        extra:  { section, round },
+      })
+    }
+    if (hasZero) { setShowZeroAlert({ onConfirm: () => { setShowZeroAlert(null); doIt() } }) }
+    else { doIt() }
   }
 
   const handleSubmitRound = async (section, round) => {
     setShowConfirm(null)
     const key = `${section}_${round}`
+    const now = new Date()
     let newAb = abierto, newOb = obstaculos
     if (section === 'abierto') {
-      newAb = { ...abierto, [round]: { ...abierto[round], finalized: true } }
+      newAb = { ...abierto, [round]: { ...abierto[round], finalized: true, savedAt: now } }
       setAbierto(newAb)
     } else {
-      newOb = { ...obstaculos, [round]: { ...obstaculos[round], finalized: true } }
+      newOb = { ...obstaculos, [round]: { ...obstaculos[round], finalized: true, savedAt: now } }
       setObstaculos(newOb)
     }
     await doSave(key, newAb, newOb, diario)
+    writeAuditLog({
+      action: 'finalize', module: 'fe',
+      actor:  { uid: user.uid, name: profile?.name || user.email, role: 'judge' },
+      team:   { id: team.id, name: team.name, number: team.number || '' },
+      extra:  { section, round },
+    })
   }
 
   // ── Diario handlers ─────────────────────────────────────────────────────────
-  const handleSaveDiario = () => doSave('diario', abierto, obstaculos, diario)
+  const handleSaveDiario = () => {
+    const hasZero = hasZeroInDiario(diario.scores ?? {})
+    const doIt = () => {
+      const newDiario = { ...diario, savedAt: new Date() }
+      setDiario(newDiario)
+      doSave('diario', abierto, obstaculos, newDiario)
+      writeAuditLog({
+        action: 'save_draft', module: 'fe',
+        actor:  { uid: user.uid, name: profile?.name || user.email, role: 'judge' },
+        team:   { id: team.id, name: team.name, number: team.number || '' },
+        extra:  { section: 'diario' },
+      })
+    }
+    if (hasZero) { setShowZeroAlert({ onConfirm: () => { setShowZeroAlert(null); doIt() } }) }
+    else { doIt() }
+  }
 
   const handleSubmitDiario = async () => {
     setShowConfirm(null)
-    const newDiario = { ...diario, finalized: true }
+    const newDiario = { ...diario, finalized: true, savedAt: new Date() }
     setDiario(newDiario)
     await doSave('diario', abierto, obstaculos, newDiario)
+    writeAuditLog({
+      action: 'finalize', module: 'fe',
+      actor:  { uid: user.uid, name: profile?.name || user.email, role: 'judge' },
+      team:   { id: team.id, name: team.name, number: team.number || '' },
+      extra:  { section: 'diario' },
+    })
+  }
+
+  // ── Zero-aware submit requests ──────────────────────────────────────────────
+  const requestSubmitRound = (section, round) => {
+    const data = section === 'abierto' ? abierto[round] : obstaculos[round]
+    const hasZero = section === 'abierto' ? hasZeroInAbierto(data) : hasZeroInObstaculos(data)
+    const roundLabel = section === 'abierto'
+      ? `Ronda ${round === 'r1' ? 1 : 2} Abierto`
+      : `Ronda 1 Obstáculos`
+    const proceed = () => {
+      setShowZeroAlert(null)
+      setShowConfirm({ label: roundLabel, onConfirm: () => handleSubmitRound(section, round) })
+    }
+    if (hasZero) { setShowZeroAlert({ onConfirm: proceed }) } else { proceed() }
+  }
+
+  const requestSubmitDiario = () => {
+    const hasZero = hasZeroInDiario(diario.scores ?? {})
+    const proceed = () => {
+      setShowZeroAlert(null)
+      setShowConfirm({ label: 'Diario de Ingeniería', onConfirm: handleSubmitDiario })
+    }
+    if (hasZero) { setShowZeroAlert({ onConfirm: proceed }) } else { proceed() }
+  }
+
+  // ── Close intercept (dirty state guard) ─────────────────────────────────────
+  const handleClose = () => {
+    // Bloquea solo si alguna sección INICIADA no fue enviada
+    const roundOk = (r) => r?.sections === undefined || !!r?.finalized
+    const diarioStarted = Object.keys(diario?.scores ?? {}).length > 0
+    const diarioOk = diarioDisabled || !diarioStarted || !!diario.finalized
+    const allFinalized = roundOk(abierto.r1) && roundOk(abierto.r2) && roundOk(obstaculos.r1) && diarioOk
+    if (hasData && isDirty && !allFinalized) { setShowDirtyExit(true) } else { onClose() }
   }
 
   const grandTotal = computeGrandTotal({ abierto, obstaculos, diario })
@@ -731,9 +928,21 @@ function TeamScoring({ team, onClose }) {
           onCancel={() => setShowConfirm(null)}
         />
       )}
+      {showZeroAlert && (
+        <ZeroScoreDialog
+          onConfirm={showZeroAlert.onConfirm}
+          onCancel={() => setShowZeroAlert(null)}
+        />
+      )}
+      {showDirtyExit && (
+        <DirtyExitDialog
+          onConfirm={() => { setShowDirtyExit(false); onClose() }}
+          onCancel={() => setShowDirtyExit(false)}
+        />
+      )}
 
       <div className="flex items-center gap-3 mb-4 mt-4">
-        <button onClick={onClose} className="btn-ghost p-2 py-1.5 text-sm">← Equipos</button>
+        <button onClick={handleClose} className="btn-ghost p-2 py-1.5 text-sm">← Equipos</button>
         <div className="flex-1" />
         <div className="text-right">
           <p className="text-xs text-gray-500">Total parcial</p>
@@ -761,8 +970,8 @@ function TeamScoring({ team, onClose }) {
         {tab === 'abierto' && (
           <motion.div key="abierto" initial={{ opacity: 0, x: -16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 16 }}>
             <div className="card bg-green-500/5 border-green-500/20 mb-4">
-              <p className="text-xs font-bold uppercase tracking-wider text-green-400 mb-1">Reto Abierto · máx {MAX_ABIERTO} pts/ronda</p>
-              <p className="text-xs text-gray-500">Cuenta la mejor de las 2 rondas (§10.7).</p>
+              <p className="text-xs font-bold uppercase tracking-wider text-green-400 mb-1">Reto Abierto · máx {MAX_ABIERTO} pts/ronda · se suman ambas rondas</p>
+              <p className="text-xs text-gray-500">El ranking usa la suma de R1 + R2.</p>
               <div className="flex gap-4 mt-2">
                 {[['R1', computeAbiertoTotal(abierto.r1)], ['R2', computeAbiertoTotal(abierto.r2)]].map(([lbl, score]) => (
                   <div key={lbl} className="text-center">
@@ -771,8 +980,8 @@ function TeamScoring({ team, onClose }) {
                   </div>
                 ))}
                 <div className="text-center">
-                  <p className="text-xs text-gray-600">⭐ Mejor</p>
-                  <p className="font-mono font-bold text-teal-400">{Math.max(computeAbiertoTotal(abierto.r1), computeAbiertoTotal(abierto.r2))}</p>
+                  <p className="text-xs text-gray-600">Σ Suma</p>
+                  <p className="font-mono font-bold text-teal-400">{computeAbiertoTotal(abierto.r1) + computeAbiertoTotal(abierto.r2)}</p>
                 </div>
               </div>
             </div>
@@ -783,17 +992,27 @@ function TeamScoring({ team, onClose }) {
               roundKey="abierto_r1" isFinalized={!!abierto.r1?.finalized}
               saving={saving} saved={saved}
               onSave={() => handleSaveRound('abierto', 'r1')}
-              onSubmit={() => setShowConfirm({ label: 'Ronda 1 Abierto', onConfirm: () => handleSubmitRound('abierto', 'r1') })}
+              onSubmit={() => requestSubmitRound('abierto', 'r1')}
             />
 
-            <AbiertoCard num={2} data={abierto.r2} disabled={!!abierto.r2?.finalized}
-              onChange={r2 => setAbierto(prev => ({ ...prev, r2 }))} />
-            <RoundButtons
-              roundKey="abierto_r2" isFinalized={!!abierto.r2?.finalized}
-              saving={saving} saved={saved}
-              onSave={() => handleSaveRound('abierto', 'r2')}
-              onSubmit={() => setShowConfirm({ label: 'Ronda 2 Abierto', onConfirm: () => handleSubmitRound('abierto', 'r2') })}
-            />
+            {!abierto.r1?.finalized ? (
+              <div className="card border-dark-600 mb-3">
+                <div className="flex items-center justify-center gap-2 py-4 text-gray-600 text-sm">
+                  🔒 Ronda 2 disponible después de enviar Ronda 1
+                </div>
+              </div>
+            ) : (
+              <>
+                <AbiertoCard num={2} data={abierto.r2} disabled={!!abierto.r2?.finalized}
+                  onChange={r2 => setAbierto(prev => ({ ...prev, r2 }))} />
+                <RoundButtons
+                  roundKey="abierto_r2" isFinalized={!!abierto.r2?.finalized}
+                  saving={saving} saved={saved}
+                  onSave={() => handleSaveRound('abierto', 'r2')}
+                  onSubmit={() => requestSubmitRound('abierto', 'r2')}
+                />
+              </>
+            )}
           </motion.div>
         )}
 
@@ -801,18 +1020,12 @@ function TeamScoring({ team, onClose }) {
         {tab === 'obstaculos' && (
           <motion.div key="obstaculos" initial={{ opacity: 0, x: -16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 16 }}>
             <div className="card bg-red-500/5 border-red-500/20 mb-4">
-              <p className="text-xs font-bold uppercase tracking-wider text-red-400 mb-1">Reto Obstáculos · máx {MAX_OBSTACULOS} pts/ronda</p>
-              <p className="text-xs text-gray-500">Cuenta la mejor ronda; empate se rompe por tiempo (§10.7).</p>
+              <p className="text-xs font-bold uppercase tracking-wider text-red-400 mb-1">Reto Obstáculos · 1 ronda única · máx {MAX_OBSTACULOS} pts</p>
+              <p className="text-xs text-gray-500">Solo se corre una ronda; empate se rompe por tiempo.</p>
               <div className="flex gap-4 mt-2">
-                {[['R1', computeObstaculosTotal(obstaculos.r1)], ['R2', computeObstaculosTotal(obstaculos.r2)]].map(([lbl, score]) => (
-                  <div key={lbl} className="text-center">
-                    <p className="text-xs text-gray-600">{lbl}</p>
-                    <p className="font-mono font-bold text-red-400">{score}</p>
-                  </div>
-                ))}
                 <div className="text-center">
-                  <p className="text-xs text-gray-600">⭐ Mejor</p>
-                  <p className="font-mono font-bold text-teal-400">{Math.max(computeObstaculosTotal(obstaculos.r1), computeObstaculosTotal(obstaculos.r2))}</p>
+                  <p className="text-xs text-gray-600">R1</p>
+                  <p className="font-mono font-bold text-red-400">{computeObstaculosTotal(obstaculos.r1)}</p>
                 </div>
               </div>
             </div>
@@ -823,16 +1036,7 @@ function TeamScoring({ team, onClose }) {
               roundKey="obstaculos_r1" isFinalized={!!obstaculos.r1?.finalized}
               saving={saving} saved={saved}
               onSave={() => handleSaveRound('obstaculos', 'r1')}
-              onSubmit={() => setShowConfirm({ label: 'Ronda 1 Obstáculos', onConfirm: () => handleSubmitRound('obstaculos', 'r1') })}
-            />
-
-            <ObstaculosCard num={2} data={obstaculos.r2} disabled={!!obstaculos.r2?.finalized}
-              onChange={r2 => setObstaculos(prev => ({ ...prev, r2 }))} />
-            <RoundButtons
-              roundKey="obstaculos_r2" isFinalized={!!obstaculos.r2?.finalized}
-              saving={saving} saved={saved}
-              onSave={() => handleSaveRound('obstaculos', 'r2')}
-              onSubmit={() => setShowConfirm({ label: 'Ronda 2 Obstáculos', onConfirm: () => handleSubmitRound('obstaculos', 'r2') })}
+              onSubmit={() => requestSubmitRound('obstaculos', 'r1')}
             />
           </motion.div>
         )}
@@ -864,7 +1068,7 @@ function TeamScoring({ team, onClose }) {
                   roundKey="diario" isFinalized={!!diario.finalized}
                   saving={saving} saved={saved}
                   onSave={handleSaveDiario}
-                  onSubmit={() => setShowConfirm({ label: 'Diario de Ingeniería', onConfirm: handleSubmitDiario })}
+                  onSubmit={requestSubmitDiario}
                 />
               </div>
             )}
@@ -894,6 +1098,7 @@ export default function FEJudgeView() {
   const [loading,  setLoading]  = useState(true)
   const [selected, setSelected] = useState(null)
   const [activeTab, setActiveTab] = useState('teams')
+  const [showResources, setShowResources] = useState(false)
 
   useEffect(() => {
     const q = query(collection(db, 'fe_teams'), orderBy('name'))
@@ -911,7 +1116,7 @@ export default function FEJudgeView() {
     t.school?.toLowerCase().includes(search.toLowerCase())
   )
 
-  if (selected) return <TeamScoring team={selected} onClose={() => setSelected(null)} />
+  if (selected) return <TeamScoring key={selected.id} team={selected} onClose={() => setSelected(null)} />
 
   return (
     <div className="min-h-screen p-4 max-w-lg mx-auto">
@@ -930,11 +1135,49 @@ export default function FEJudgeView() {
         </div>
         <div className="flex items-center gap-2">
           <p className="text-xs text-gray-500 hidden sm:block">{profile?.name}</p>
+          <button onClick={() => setShowResources(true)}
+            className="text-gray-500 hover:text-teal-400 transition-colors p-2" title="Recursos">
+            <BookOpen size={16} />
+          </button>
           <button onClick={logout} className="text-gray-500 hover:text-red-400 transition-colors p-2">
             <LogOut size={16} />
           </button>
         </div>
       </div>
+
+      {/* Resources modal */}
+      {showResources && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={() => setShowResources(false)}>
+          <div className="card max-w-sm w-full bg-dark-800 border-teal-500/30 space-y-3" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <p className="font-bold text-white flex items-center gap-2"><BookOpen size={16} className="text-teal-400" /> Recursos</p>
+              <button onClick={() => setShowResources(false)} className="text-gray-500 hover:text-white p-1"><X size={16} /></button>
+            </div>
+            {RESOURCES.map((r, i) => (
+              <a key={i} href={r.url} target="_blank" rel="noopener noreferrer"
+                className="flex items-start gap-3 p-3 rounded-xl bg-dark-700 border border-dark-600 hover:border-teal-500/30 transition-colors">
+                <span className="text-xl shrink-0">{r.icon}</span>
+                <div>
+                  <p className="text-sm font-semibold text-white">{r.label}</p>
+                  <p className="text-xs text-gray-500 mt-0.5">{r.description}</p>
+                </div>
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Encargado / Mesa banner */}
+      {(profile?.encargado || profile?.tableComp) && (
+        <div className="flex items-center gap-3 px-3 py-2 rounded-xl mb-4 bg-teal-500/10 border border-teal-500/20 flex-wrap">
+          {profile?.encargado && (
+            <p className="text-xs text-gray-400">Encargado: <span className="text-teal-400 font-semibold">{profile.encargado}</span></p>
+          )}
+          {profile?.tableComp && (
+            <p className="text-xs text-gray-400">Mesa de competencia: <span className="font-mono font-bold text-teal-400">{profile.tableComp}</span></p>
+          )}
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex gap-2 mb-5 bg-dark-700 p-1 rounded-xl">
@@ -990,11 +1233,11 @@ export default function FEJudgeView() {
                     onClick={() => setSelected(team)}
                     className="w-full card-hover text-left flex items-center gap-3">
                     <div className="w-10 h-10 rounded-xl bg-teal-500/10 border border-teal-500/30 flex items-center justify-center font-bold shrink-0 text-teal-400 text-sm">
-                      {team.number || team.name?.[0]?.toUpperCase()}
+                      {team.correlativo || team.name?.[0]?.toUpperCase()}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-white text-sm truncate">{team.name}</p>
-                      {team.school && <p className="text-xs text-gray-500 truncate">{team.school}</p>}
+                      <p className="font-semibold text-white text-sm break-words">{team.name}</p>
+                      {team.school && <p className="text-xs text-gray-500 break-words">{team.school}</p>}
                     </div>
                     <ChevronRight size={16} className="text-gray-600 shrink-0" />
                   </motion.button>
